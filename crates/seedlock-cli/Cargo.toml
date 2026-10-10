@@ -1,0 +1,26 @@
+[package]
+name = "seedlock-cli"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "SeedLock: offline Bitcoin seed tool (command line)"
+
+[[bin]]
+name = "seedlock"
+path = "src/main.rs"
+
+[dependencies]
+seedlock-core = { path = "../seedlock-core" }
+clap = { version = "4", default-features = false, features = ["std", "derive", "help", "usage", "error-context", "suggestions"] }
+qrcode = { version = "0.14", default-features = false, features = ["svg"] }
+rpassword = "7"
+rqrr = { version = "0.10", default-features = false }
+zeroize = "1"
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
+[lints.rust]
+# `--cfg seedlock_check_windows` type-checks the Windows console code on other systems (see ui.rs)
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(seedlock_check_windows)'] }

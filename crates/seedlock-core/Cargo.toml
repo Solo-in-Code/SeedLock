@@ -1,0 +1,21 @@
+[package]
+name = "seedlock-core"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "Offline Bitcoin seed tooling: encrypted mnemonic backups, wallet derivation and PSBT signing"
+
+[dependencies]
+argon2 = { version = "0.5", default-features = false, features = ["alloc", "zeroize"] }
+bip39 = { version = "2", features = ["zeroize"] }
+bitcoin = { version = "0.32", default-features = false, features = ["std"] }
+chacha20poly1305 = { version = "0.10", default-features = false, features = ["alloc"] }
+data-encoding = "2"
+getrandom = "0.2"
+# BBQr codes ("Z" encoding) are deflate-compressed: unpacked with a size limit
+miniz_oxide = { version = "0.8", default-features = false, features = ["with-alloc"] }
+thiserror = "1"
+unicode-normalization = "0.1"
+ur = "0.5.2"
+zeroize = "1"
