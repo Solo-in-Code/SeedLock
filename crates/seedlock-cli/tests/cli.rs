@@ -522,6 +522,29 @@ fn shows_its_version_above_the_menu_and_with_dash_dash_version() {
     assert_eq!(String::from_utf8_lossy(&o.stdout).trim(), format!("seedlock {version}"));
 }
 
+/// Every version number that the README and the guides give for SeedLock ("SeedLock 0.1.1", "version 0.1.1",
+/// "seedlock-0.1.1") is the program's own, so that a new version in Cargo.toml cannot leave an old number behind.
+#[test]
+fn the_readme_and_the_guides_show_this_version() {
+    let version = env!("CARGO_PKG_VERSION");
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let mut found = 0;
+    for doc in ["README.md", "docs/GUIDE.md", "docs/DEVELOPMENT.md"] {
+        let text = std::fs::read_to_string(root.join(doc)).unwrap();
+        for word in ["SeedLock ", "version ", "seedlock-"] {
+            for (at, _) in text.match_indices(word) {
+                let number: String = text[at + word.len()..].chars().take_while(|c| c.is_ascii_digit() || *c == '.').collect();
+                let number = number.trim_end_matches('.');
+                if number.starts_with(|c: char| c.is_ascii_digit()) && number.contains('.') {
+                    assert_eq!(number, version, "{doc} gives SeedLock's version as \"{word}{number}\", but the program is {version}");
+                    found += 1;
+                }
+            }
+        }
+    }
+    assert!(found >= 4, "the README and the guides show the version in at least 4 places, not {found}");
+}
+
 #[test]
 fn declining_leaves_nothing_signed() {
     let dir = tmp("decline");

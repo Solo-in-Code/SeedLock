@@ -14,7 +14,7 @@ With SeedLock you can:
   QR code with the computer's camera;
 * be one of the keys of a **multisig wallet** (for example 2 of 3).
 
-> **Status: version 0.1, not independently audited.** Nobody outside this project has reviewed it yet. Try it on
+> **Status: version 0.1.1, not independently audited.** Nobody outside this project has reviewed it yet. Try it on
 > testnet, or with a small amount, first. Never type a real seed into a website, a chat or an online computer.
 
 ## Contents
@@ -95,8 +95,11 @@ SeedLock is built from its source code with the free Rust tools. You do this onc
 
 ### Step 2: download SeedLock
 
-On SeedLock's GitHub page (the page that shows this text), click the green **Code** button above the list of files,
-then **Download ZIP**. Unzip the file: you get a folder with a name like `seedlock-main`.
+On SeedLock's GitHub page (the page that shows this text), click **Releases** on the right. Under the newest release,
+in its **Assets**, click **Source code (zip)**. Unzip the file: you get a folder with a name like `seedlock-0.1.1`.
+
+(If there is no release yet, click the green **Code** button above the list of files, then **Download ZIP**: you get
+the newest files, in a folder with a name like `seedlock-main`.)
 
 ### Step 3: build the program
 

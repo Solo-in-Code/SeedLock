@@ -10,11 +10,12 @@ later be built into Android and iOS apps unchanged.
 ## Contents
 
 1. [Building](#building)
-2. [Supply chain and the offline audit](#supply-chain-and-the-offline-audit)
-3. [How SeedLock was verified](#how-seedlock-was-verified)
-4. [Technical notes](#technical-notes)
-5. [Code layout](#code-layout)
-6. [Limitations and roadmap](#limitations-and-roadmap)
+2. [Making a release](#making-a-release)
+3. [Supply chain and the offline audit](#supply-chain-and-the-offline-audit)
+4. [How SeedLock was verified](#how-seedlock-was-verified)
+5. [Technical notes](#technical-notes)
+6. [Code layout](#code-layout)
+7. [Limitations and roadmap](#limitations-and-roadmap)
 
 ## Building
 
@@ -90,15 +91,61 @@ offline computer with the file you built yourself, by its SHA-256 checksum.
 
 ### The version number
 
-The version is set in one place, `version` under `[workspace.package]` in the top `Cargo.toml`. The menu's title
-shows it (`=== SeedLock 0.1.1: offline Bitcoin seed tool ===`), and `seedlock --version` prints it. `Cargo.lock`
-records it too: after changing it, run `cargo build --offline` once without `--locked`, so that `Cargo.lock` follows.
+The program takes its version from one place, `version` under `[workspace.package]` in the top `Cargo.toml`. The
+menu's title shows it (`=== SeedLock 0.1.1: offline Bitcoin seed tool ===`), and `seedlock --version` prints it.
+`Cargo.lock` records it too: after changing it, run `cargo build --offline` once without `--locked`, so that
+`Cargo.lock` follows. The README and the guides show it as well; see [Making a release](#making-a-release).
 
 ### The Windows console code
 
 The Windows console code (the live dice counter, colours and cursor moves in the console window) is compiled only on
 Windows. On Linux it is type-checked with `RUSTFLAGS="--cfg seedlock_check_windows" cargo check`, since it cannot
 run there.
+
+## Making a release
+
+A release is a version of SeedLock that people can download exactly as it was tested, from the repository's
+**Releases** page. The README sends users there (Part 1, Step 2).
+
+1. **The version.** Set the new one in `Cargo.toml` (`version` under `[workspace.package]`, for example `0.1.2`) and
+   run `cargo build --offline` once without `--locked`, so that `Cargo.lock` follows. Then change it where the
+   documents show it: the README (the status note, the folder name in Part 1, Step 2, and the menu in Part 3), the
+   guide (the menu's title) and this page (The version number). `cargo test` fails if one of them was forgotten (the
+   test `the_readme_and_the_guides_show_this_version`).
+2. **Check everything:** `cargo test --workspace --locked`, the three test scripts, `sh tools/audit-offline.sh` (see
+   [Re-running the tests](#re-running-the-tests)), and a build with Rust 1.85, the oldest version SeedLock supports.
+3. **Put the files on GitHub,** on the `main` branch. In the web interface: open the folder a changed file belongs
+   in, click **Add file > Upload files**, and drag the file in (a file with the same name is replaced). Upload the
+   files themselves, never a zip file: GitHub does not unpack it.
+4. **Create the release.** On the repository's main page, click **Releases** on the right, then **Draft a new
+   release** (before the first release, the link is called **Create a new release**). Open **Choose a tag**, type
+   the version with a `v` in front (for example `v0.1.2`) and click **Create new tag**; **Target**: `main`.
+   **Release title**: `SeedLock` and the version. In **Describe this release**, say what changed, and that SeedLock
+   is not independently audited. Leave **This is a pre-release** off and **Set as latest release** on, so that this
+   release is the newest one, and click **Publish release**.
+
+**What to attach: nothing.** GitHub adds the source code of the tag to every release by itself, as **Source code
+(zip)** and **Source code (tar.gz)**, and that is what the README tells users to download and build.
+
+**Checksums and signatures.** A list of SHA-256 checksums on the release page only shows that a download arrived
+complete: whoever could change the release could change the list too. Only a signature, made with a key that people
+get from somewhere else (for example a PGP key published on a website and on key servers), shows who made the files.
+For a release of source code that people build themselves, what protects them is the GitHub account itself: sign in
+with two-factor authentication, best with a passkey or a security key. The check that matters most for users is
+already in the README: the program they built and the copy on their offline computer must have the same SHA-256
+checksum. Do not publish checksums of GitHub's own source code archives: GitHub generates them on request, caches
+them for a while and then deletes them
+([GitHub's documentation](https://docs.github.com/en/repositories/working-with-files/using-files/downloading-source-code-archives)),
+so their exact bytes are not something to promise.
+
+**Ready-made programs (not offered yet).** To let users skip installing Rust, a release could also carry the program
+built on each system: Linux (built on the oldest Linux version to be supported, see
+[Which computers a build runs on](#which-computers-a-build-runs-on)), macOS with Apple silicon, macOS with Intel, and
+Windows, each named after its version and system (`seedlock-X.Y.Z-linux-x86_64`,
+`seedlock-X.Y.Z-windows-x86_64.exe`...). Then a checksum list is needed (`sha256sum seedlock-* > SHA256SUMS.txt`),
+best signed (`gpg --clearsign SHA256SUMS.txt`), and the README needs a second way through Parts 1 and 2: download the
+program for your system, compare its checksum with the list, and copy it to the offline computer. Downloaded programs that are not signed by Apple or Microsoft also
+meet those systems' warnings (macOS Gatekeeper, Windows SmartScreen), which the README would have to explain.
 
 ## Supply chain and the offline audit
 
@@ -143,7 +190,7 @@ If you publish built programs and not only the source, include those libraries' 
 
 ### Automated tests
 
-**127 automated tests** (`cargo test --workspace --locked`):
+**128 automated tests** (`cargo test --workspace --locked`):
 
 * **68 for the core library:** backup tamper detection on every bit; BIP39/32/44/49/84/86 test vectors; BIP380
   descriptor checksums; PSBT signing with signature verification for SegWit v0 and Taproot; the swapped-change attack;
@@ -169,12 +216,12 @@ If you publish built programs and not only the source, include those libraries' 
   tables, macOS `route` output and Windows `route print` output in English and Spanish; a virtual machine recognised
   from its firmware description (and real computers not); Windows registry values; a scanned backup matched to its
   file; and which files of an earlier version go into the cosigner keys folder.
-* **24 end-to-end tests of the real program:** among them `sign --scan` through a stand-in ffmpeg; signing without
+* **25 end-to-end tests of the real program:** among them `sign --scan` through a stand-in ffmpeg; signing without
   `--network` (a test-network transaction is recognised and shown with testnet addresses, a mainnet one is called real
   bitcoin, `--network` still wins, and a transaction with no key paths gets a clear error instead of a guess); a
   registered 2-of-3 wallet signed by two cosigners in turn, refused when unregistered, with the files an earlier
-  version kept next to the backups moved into their folders first; and the version in the menu's title, above the
-  menu, and from `--version`.
+  version kept next to the backups moved into their folders first; the version in the menu's title, above the
+  menu, and from `--version`; and the same version everywhere the README and the guides give it.
 
 ### Independent implementations agree
 
