@@ -14,13 +14,13 @@ With SeedLock you can:
   QR code with the computer's camera;
 * be one of the keys of a **multisig wallet** (for example 2 of 3).
 
-> **Status: version 0.1.1, not independently audited.** Nobody outside this project has reviewed it yet. Try it on
+> **Status: version 0.1.2, not independently audited.** Nobody outside this project has reviewed it yet. Try it on
 > testnet, or with a small amount, first. Never type a real seed into a website, a chat or an online computer.
 
 ## Contents
 
 1. [Two computers: what each one is for](#two-computers-what-each-one-is-for)
-2. [Part 1: build SeedLock on the online computer](#part-1-build-seedlock-on-the-online-computer)
+2. [Part 1: get the SeedLock program, on the online computer](#part-1-get-the-seedlock-program-on-the-online-computer)
 3. [Part 2: put SeedLock on the offline computer](#part-2-put-seedlock-on-the-offline-computer)
 4. [Part 3: start SeedLock on the offline computer](#part-3-start-seedlock-on-the-offline-computer)
 5. [First steps](#first-steps)
@@ -33,14 +33,15 @@ With SeedLock you can:
 |  | Online computer (your everyday computer) | Offline computer (never connected to the internet) |
 |---|---|---|
 | Its job | Sparrow Wallet shows your balance and prepares payments. It is a watch-only wallet: it has no seed. | SeedLock keeps your seed and signs payments. |
-| Rust, to build SeedLock | Yes, once | No |
-| SeedLock | Only to build it. Never type a real seed here. | Yes: just the program file |
+| Rust, to build SeedLock | Only if you build it yourself (Part 1, Way B), once | No |
+| SeedLock | Only to download or build it. Never type a real seed here. | Yes: just the program file |
 | Your seed (the words) | **Never** | Yes |
 | Your encrypted backup files | Only copies to store, for example in the cloud | Yes |
 | ffmpeg, for the camera and the QR window | No | Optional, installed before it goes offline |
 
-**The offline computer needs only one file: the SeedLock program.** Rust, `cargo` and SeedLock's source code are
-needed only on the computer that builds the program. Once built, the program runs on its own.
+**The offline computer needs only one file: the SeedLock program.** You download it ready-made, or build it yourself
+on the online computer; Rust, `cargo` and SeedLock's source code are needed only to build it. The program runs on its
+own.
 
 A payment goes like this:
 
@@ -50,11 +51,54 @@ A payment goes like this:
 3. **Online:** Sparrow reads the signed payment back (from the file, or by scanning SeedLock's QR code with its
    camera) and sends it to the Bitcoin network.
 
-## Part 1: build SeedLock on the online computer
+## Part 1: get the SeedLock program, on the online computer
 
-SeedLock is built from its source code with the free Rust tools. You do this once, on a computer with internet.
+The offline computer needs one program file. There are two ways to get it:
 
-### Step 1: install Rust
+* **Way A: download it** ready-made, from SeedLock's GitHub page. The easiest way: a few minutes.
+* **Way B: build it yourself** from SeedLock's source code, with the free Rust tools: about half an hour the first
+  time. Then your own computer makes the program, from source code that anyone can read.
+
+### Way A: download the ready-made program
+
+1. On SeedLock's GitHub page (the page that shows this text), click **Releases** on the right. Under the newest
+   release, in its **Assets**, download **SHA256SUMS.txt** and the program for your **offline** computer:
+
+   | Offline computer | Program to download |
+   |---|---|
+   | Windows (64-bit) | `seedlock-0.1.2-windows-x86_64.exe` |
+   | Mac, with an Apple chip or an Intel chip | `seedlock-0.1.2-macos` |
+   | Linux, on a 64-bit Intel or AMD processor | `seedlock-0.1.2-linux-x86_64` |
+
+   For other computers, such as a Raspberry Pi, build SeedLock yourself (Way B), and also if the newest release has
+   no programs to download yet. If your browser warns that the program is not commonly downloaded, choose to keep it
+   (in Edge: **...**, **Keep**, **Show more**, **Keep anyway**): the next step checks it.
+2. **Check the download.** Open a terminal in the folder it was downloaded to (usually **Downloads**):
+   * Windows: open the folder in File Explorer, click the address bar at the top, type `powershell` and press Enter.
+   * Mac: open Terminal, type `cd ~/Downloads` and press Enter.
+   * Linux: open a terminal, type `cd ` (with a space after it), drag the folder from your file manager onto the
+     terminal window, and press Enter.
+
+   Then type the line for your program and press Enter:
+
+   | Program | Command |
+   |---|---|
+   | Windows | `(Get-FileHash seedlock-0.1.2-windows-x86_64.exe).Hash` |
+   | Mac | `shasum -a 256 seedlock-0.1.2-macos` |
+   | Linux | `sha256sum seedlock-0.1.2-linux-x86_64` |
+
+   It shows a long number: the program's fingerprint (its SHA-256 checksum). Open `SHA256SUMS.txt` with a text
+   editor: the number next to the program's name must be exactly the same (upper or lower case does not matter). If
+   it is not, the download is damaged: delete it, and do not use it.
+3. **Rename the program** to `seedlock`, in File Explorer, Finder or your file manager. On Windows, type just
+   `seedlock` too: File Explorer keeps the `.exe` at the end by itself. The fingerprint stays the same, so keep
+   `SHA256SUMS.txt`: in Part 2 it goes to the offline computer with the program, to check the copy there.
+
+### Way B: build it yourself
+
+You do this once, on a computer with internet.
+
+#### Step 1: install Rust
 
 **Linux** (Debian, Ubuntu, Lubuntu, Arch, Fedora and others)
 
@@ -93,15 +137,15 @@ SeedLock is built from its source code with the free Rust tools. You do this onc
 4. Open **PowerShell** (Start menu, type PowerShell). Type `cargo --version` and press Enter: it must show 1.85 or
    higher.
 
-### Step 2: download SeedLock
+#### Step 2: download the source code
 
 On SeedLock's GitHub page (the page that shows this text), click **Releases** on the right. Under the newest release,
-in its **Assets**, click **Source code (zip)**. Unzip the file: you get a folder with a name like `seedlock-0.1.1`.
+in its **Assets**, click **Source code (zip)**. Unzip the file: you get a folder with a name like `seedlock-0.1.2`.
 
 (If there is no release yet, click the green **Code** button above the list of files, then **Download ZIP**: you get
 the newest files, in a folder with a name like `seedlock-main`.)
 
-### Step 3: build the program
+#### Step 3: build the program
 
 1. Open a terminal **in that folder**:
    * Linux and macOS: in the terminal, type `cd ` (with a space after it), drag the folder from your file manager
@@ -125,21 +169,23 @@ exactly the same file. In the same terminal, type:
 |---|---|
 | Linux | `sha256sum target/release/seedlock` |
 | macOS | `shasum -a 256 target/release/seedlock` |
-| Windows | `Get-FileHash target\release\seedlock.exe` |
+| Windows | `(Get-FileHash target\release\seedlock.exe).Hash` |
 
 ## Part 2: put SeedLock on the offline computer
 
 ### Copy the program
 
-1. Copy the program file to a USB stick: `seedlock` from the folder `target/release` (on Windows, `seedlock.exe`
-   from `target\release`), inside the folder you downloaded.
+1. Copy the program file to a USB stick: the program you downloaded and renamed, with `SHA256SUMS.txt` (Way A), or
+   the one you built (Way B): `seedlock` from the folder `target/release` (on Windows, `seedlock.exe` from
+   `target\release`), inside the folder you downloaded.
 2. On the offline computer, make a folder for SeedLock, for example `SeedLock` in your home folder, and copy the
    program file into it from the USB stick. Your backups will be saved in this folder too.
 3. Check the copy: open a terminal in that folder and type the fingerprint command again (`sha256sum seedlock` on
-   Linux, `shasum -a 256 seedlock` on macOS, `Get-FileHash seedlock.exe` on Windows). The long number must be the
-   same as on the online computer.
+   Linux, `shasum -a 256 seedlock` on macOS, `(Get-FileHash seedlock.exe).Hash` on Windows). The long number must be
+   the same as on the online computer (with Way A: the one in `SHA256SUMS.txt`, next to the program's name).
 
-The program runs only on the same kind of computer it was built on:
+A program file runs only on the kind of computer it is made for. With Way A, download the program for the offline
+computer's system. With Way B, the program runs only on the same kind of computer it was built on:
 
 * **the same system:** a program built on Windows runs on Windows, one built on a Mac on a Mac, one built on Linux on
   Linux;
@@ -148,10 +194,10 @@ The program runs only on the same kind of computer it was built on:
 * **on Linux, a system that is not older:** build it on the same Linux version as the offline computer, or an older
   one. Built on a newer Linux, it does not start, and says something like `GLIBC_2.39 not found`.
 
-If your offline computer is of another kind, build SeedLock on a computer of that same kind instead.
+If your offline computer is of another kind, use Way A, or build SeedLock on a computer of that same kind.
 
-> **One computer for both?** You can also build SeedLock on the computer that will become your offline computer,
-> and then take it offline for good: Wi-Fi off, network cable out, and never online again. Safest of all is a
+> **One computer for both?** You can also get SeedLock (Part 1) on the computer that will become your offline
+> computer, and then take it offline for good: Wi-Fi off, network cable out, and never online again. Safest of all is a
 > computer whose system was freshly installed and that never goes online after that. If you want the camera, install
 > ffmpeg (below) before it goes offline.
 
@@ -173,7 +219,8 @@ the camera** checks that it works.
 
 ## Part 3: start SeedLock on the offline computer
 
-**Windows:** double-click `seedlock.exe` in its folder. Or, in PowerShell in that folder, type `.\seedlock.exe`.
+**Windows:** double-click `seedlock.exe` in its folder. Or, in PowerShell in that folder, type `.\seedlock.exe`. The
+first time, a downloaded program may show **Windows protected your PC**: click **More info**, then **Run anyway**.
 
 **Linux and macOS:** open a terminal in SeedLock's folder (type `cd `, drag the folder onto the terminal window,
 press Enter), then type:
@@ -183,13 +230,15 @@ press Enter), then type:
 ```
 
 The `./` means "the program in this folder". The first time after copying, it may say `Permission denied`: then type
-`chmod +x seedlock` once, and `./seedlock` again. Start it this way, not by double-clicking it: a double-clicked
-program may start in your home folder, and SeedLock would then look for your backups there.
+`chmod +x seedlock` once, and `./seedlock` again. On a Mac, a downloaded program may show the first time that Apple
+could not verify "seedlock": close that message (do not move it to the trash), type
+`xattr -d com.apple.quarantine seedlock` once, and `./seedlock` again. Start SeedLock this way, not by double-clicking
+it: a double-clicked program may start in your home folder, and SeedLock would then look for your backups there.
 
 SeedLock starts with its menu:
 
 ```
-=== SeedLock 0.1.1: offline Bitcoin seed tool ===
+=== SeedLock 0.1.2: offline Bitcoin seed tool ===
 Use this on a computer that is NOT connected to the internet.
 
 This computer is offline: no network connection was found.
@@ -253,12 +302,16 @@ Everything in detail, including multisig and the camera, is in the [user guide](
 | What you see | What to do |
 |---|---|
 | `cargo: command not found`, after installing Rust | Close the terminal and open a new one. |
-| ``linker `cc` not found`` or ``linker `link.exe` not found``, while building | Install the C compiler: Part 1, Step 1, item 2 for your system. |
+| The download's fingerprint is not the one in `SHA256SUMS.txt` | Delete the file and download it again. If it is still different, do not use it. |
+| ``linker `cc` not found`` or ``linker `link.exe` not found``, while building | Install the C compiler: Part 1, Way B, Step 1, item 2 for your system. |
 | `seedlock: command not found` | In SeedLock's folder, type `./seedlock`, with the `./`. |
 | `Permission denied`, when starting it | Type `chmod +x seedlock`, then `./seedlock` again. |
-| `GLIBC_... not found` | It was built on a newer Linux. Build it on the same Linux version as the offline computer. |
+| `GLIBC_... not found` | It was built on a newer Linux. Use the downloaded program (Way A), or build it on the same Linux version as the offline computer. |
 | `cannot execute binary file` or `Exec format error` | It was built for another kind of computer. See Part 2. |
-| macOS: "cannot be opened" or "developer cannot be verified" | In SeedLock's folder, type `xattr -d com.apple.quarantine seedlock` once. |
+| macOS: "Apple could not verify", "cannot be opened" or "developer cannot be verified" | In SeedLock's folder, type `xattr -d com.apple.quarantine seedlock` once. |
+| Windows: "Windows protected your PC" | Click **More info**, then **Run anyway**. |
+| Windows: "VCRUNTIME140.dll was not found" | That program was built from an older version of SeedLock's source code. Download the program (Way A), or build it again from the newest source code. |
+| Windows 11: "Smart App Control blocked an app" | Smart App Control stops programs that are not signed by a company Microsoft knows, as SeedLock's are not. It can be switched off in Windows Security, App & browser control, Smart App Control settings; read Microsoft's explanation there first. |
 | Windows: the window closes at once | Start it from PowerShell instead (Part 3), to read its message. |
 | "ffmpeg was not found" | Install ffmpeg (Part 2). On Windows, put `ffmpeg.exe` and `ffplay.exe` next to `seedlock.exe`. |
 | The camera does not read Sparrow's QR code | Test it with menu 9. Hold the camera steady and closer, and avoid glare. Make Sparrow's code less dense: in its QR window, click **Less Dense** (in older Sparrow versions **Decrease Density**; in newer ones, set the density list to **Low**). |

@@ -1,8 +1,9 @@
 # SeedLock user guide
 
-This guide explains everything SeedLock does. To install SeedLock, follow the [README](../README.md) first: build it
-on your online computer (Part 1), copy the program to your offline computer (Part 2) and start it there (Part 3).
-The README's [First steps](../README.md#first-steps) are the short version of this guide.
+This guide explains everything SeedLock does. To install SeedLock, follow the [README](../README.md) first: get the
+program on your online computer (Part 1: download it, or build it yourself), copy it to your offline computer
+(Part 2) and start it there (Part 3). The README's [First steps](../README.md#first-steps) are the short version of
+this guide.
 
 Everything in this guide happens on the **offline computer**, unless it says **in Sparrow**:
 [Sparrow Wallet](https://sparrowwallet.com) runs on your everyday, online computer. The Sparrow steps are written for
@@ -84,7 +85,7 @@ Type a number and press Enter. After each task SeedLock comes back to the menu; 
 When SeedLock asks a question, the answer in square brackets is what you get by pressing Enter alone: `[24]`, `[1]`.
 In a yes-or-no question, `[y/N]` means that Enter answers no, and `[Y/n]` that Enter answers yes.
 
-The menu's title shows SeedLock's version: `=== SeedLock 0.1.1: offline Bitcoin seed tool ===`.
+The menu's title shows SeedLock's version: `=== SeedLock 0.1.2: offline Bitcoin seed tool ===`.
 `./seedlock --version` (Windows: `.\seedlock.exe --version`) shows it too.
 
 ### Is this computer online?

@@ -5,6 +5,16 @@
 
 #![deny(unsafe_code)]
 
+// Windows: the C runtime must be inside the program, or the program does not start on a computer without Microsoft's
+// "Visual C++ Redistributable" ("VCRUNTIME140.dll was not found"), which an offline computer may well lack.
+// .cargo/config.toml asks for that; a build without it stops here instead of making such a program.
+#[cfg(all(windows, target_env = "msvc", not(target_feature = "crt-static")))]
+compile_error!(
+    "SeedLock's Windows program must have the C runtime inside it. The file .cargo/config.toml from SeedLock's source \
+     is missing (or the RUSTFLAGS variable replaced its setting): put that file back, or build with \
+     RUSTFLAGS=\"-C target-feature=+crt-static\"."
+);
+
 mod cli;
 mod commands;
 mod qrimg;

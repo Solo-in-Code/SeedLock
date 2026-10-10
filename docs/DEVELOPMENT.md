@@ -22,8 +22,8 @@ later be built into Android and iOS apps unchanged.
 ### What you need
 
 * **Rust 1.85 or newer** (`rust-version` in `Cargo.toml`). SeedLock is tested with Rust 1.91, and also built with
-  1.85. The README's [Part 1](../README.md#part-1-build-seedlock-on-the-online-computer) installs it with rustup, the
-  official installer, which works on every system. Packaged versions work too when they are new enough: on Debian 13,
+  1.85. The README's [Part 1, Way B](../README.md#way-b-build-it-yourself) installs it with rustup, the official
+  installer, which works on every system. Packaged versions work too when they are new enough: on Debian 13,
   `sudo apt install cargo` gives exactly 1.85; Debian 12 and other older systems install an older one, so use rustup
   there (`install.sh` checks the version and says so); Arch's `rust` package and Homebrew's `rust` are current.
 * **A C compiler.** `secp256k1-sys`, the library under rust-bitcoin's signatures, compiles the C code of
@@ -72,10 +72,12 @@ libraries' source code on an online computer first:
 ```sh
 # online, in SeedLock's folder:
 cargo vendor vendor
-mkdir -p .cargo && printf '[source.crates-io]\nreplace-with = "vendored-sources"\n[source.vendored-sources]\ndirectory = "vendor"\n' > .cargo/config.toml
+printf '[source.crates-io]\nreplace-with = "vendored-sources"\n[source.vendored-sources]\ndirectory = "vendor"\n' >> .cargo/config.toml
 # copy the whole folder, with vendor/ and .cargo/, to the offline computer; there:
 cargo build --release --locked --offline
 ```
+
+The `>>` adds these lines to `.cargo/config.toml`, which already holds the Windows setting described below.
 
 ### Which computers a build runs on
 
@@ -85,6 +87,13 @@ with the same or a newer system (it needs the C library, glibc, at least as new 
 otherwise it stops with `GLIBC_2.xx not found`). So build on the oldest system you want it to run on, or on that
 computer itself.
 
+The ready-made programs of a release avoid these limits where they can (see [Making a release](#making-a-release)):
+the Linux one is a static program built with musl, so it needs no glibc and runs on any x86-64 Linux; the macOS one
+holds both kinds of Mac processor; and every Windows build has the C runtime inside the program, by the setting in
+`.cargo/config.toml` (`-C target-feature=+crt-static`), so it also starts on a computer without Microsoft's "Visual
+C++ Redistributable", where it would otherwise stop with `VCRUNTIME140.dll was not found`. A Windows build without that
+setting (the file missing, or a `RUSTFLAGS` variable that replaces it) stops with a message saying so (`main.rs`).
+
 Two builds of the same source are usually not identical byte for byte when they are made on different computers
 (Rust records file paths and its own version in the program). That is why the README compares the copy on the
 offline computer with the file you built yourself, by its SHA-256 checksum.
@@ -92,7 +101,7 @@ offline computer with the file you built yourself, by its SHA-256 checksum.
 ### The version number
 
 The program takes its version from one place, `version` under `[workspace.package]` in the top `Cargo.toml`. The
-menu's title shows it (`=== SeedLock 0.1.1: offline Bitcoin seed tool ===`), and `seedlock --version` prints it.
+menu's title shows it (`=== SeedLock 0.1.2: offline Bitcoin seed tool ===`), and `seedlock --version` prints it.
 `Cargo.lock` records it too: after changing it, run `cargo build --offline` once without `--locked`, so that
 `Cargo.lock` follows. The README and the guides show it as well; see [Making a release](#making-a-release).
 
@@ -104,48 +113,100 @@ run there.
 
 ## Making a release
 
-A release is a version of SeedLock that people can download exactly as it was tested, from the repository's
-**Releases** page. The README sends users there (Part 1, Step 2).
+A release is a version of SeedLock that people download exactly as it was tested, from the repository's
+**Releases** page: the ready-made programs (README, Part 1, Way A) and the source code (Way B).
 
-1. **The version.** Set the new one in `Cargo.toml` (`version` under `[workspace.package]`, for example `0.1.2`) and
-   run `cargo build --offline` once without `--locked`, so that `Cargo.lock` follows. Then change it where the
-   documents show it: the README (the status note, the folder name in Part 1, Step 2, and the menu in Part 3), the
-   guide (the menu's title) and this page (The version number). `cargo test` fails if one of them was forgotten (the
-   test `the_readme_and_the_guides_show_this_version`).
+1. **The version.** Set the new one in `Cargo.toml` (`version` under `[workspace.package]`, for example `0.1.3`) and
+   run `cargo build --offline` once without `--locked`, so that `Cargo.lock` follows. Then replace the old number
+   with the new one in `README.md`, `docs/GUIDE.md` and this page (search and replace): the status note, the program
+   and folder names in Part 1, and the menu. `cargo test` fails if one was forgotten (the test
+   `the_readme_and_the_guides_show_this_version`).
 2. **Check everything:** `cargo test --workspace --locked`, the three test scripts, `sh tools/audit-offline.sh` (see
    [Re-running the tests](#re-running-the-tests)), and a build with Rust 1.85, the oldest version SeedLock supports.
 3. **Put the files on GitHub,** on the `main` branch. In the web interface: open the folder a changed file belongs
    in, click **Add file > Upload files**, and drag the file in (a file with the same name is replaced). Upload the
-   files themselves, never a zip file: GitHub does not unpack it.
-4. **Create the release.** On the repository's main page, click **Releases** on the right, then **Draft a new
+   files themselves, never a zip file: GitHub does not unpack it. Most file managers hide files and folders whose
+   names start with a dot, such as `.cargo/config.toml`: create those with **Add file > Create new file** instead,
+   typing the whole path as the name (`.cargo/config.toml`) and pasting the content.
+4. **Build the programs** from exactly those files: on each computer, download them from GitHub (**Code > Download
+   ZIP**), then, in that folder:
+
+   | System | Commands | The program |
+   |---|---|---|
+   | Linux (x86-64) | `sh tools/build-release.sh` | `dist/seedlock-X.Y.Z-linux-x86_64` |
+   | macOS | `sh tools/build-release.sh` | `dist/seedlock-X.Y.Z-macos` |
+   | Windows | `rustup target add x86_64-pc-windows-msvc`, `cargo build --release --locked --target x86_64-pc-windows-msvc`, then `Copy-Item target\x86_64-pc-windows-msvc\release\seedlock.exe seedlock-X.Y.Z-windows-x86_64.exe` | `seedlock-X.Y.Z-windows-x86_64.exe` |
+
+   `X.Y.Z` is the version. The script needs Rust installed with rustup, and on Linux musl; it says how to install
+   what is missing. It prints each program's SHA-256; on Windows,
+   `(Get-FileHash seedlock-X.Y.Z-windows-x86_64.exe).Hash` shows it. Write them down. (Naming the Windows target makes
+   an x86-64 program even on a Windows computer with an ARM processor, where Rust would otherwise build for ARM.)
+5. **Try each program** on its system: it starts, shows the version in the menu's title, and opens a backup. Best on
+   a computer where Rust was never installed, as the users' computers are. On Linux, the three test scripts also take
+   the ready-made program: give its path instead of `target/release/seedlock`.
+6. **The checksum list.** Bring the three programs to one Linux or Mac computer (a USB stick is fine), into one
+   folder, and check that each one still has the SHA-256 written down in step 4. Then, in that folder:
+
+   ```sh
+   sha256sum seedlock-X.Y.Z-* > SHA256SUMS.txt       # on a Mac: shasum -a 256 seedlock-X.Y.Z-* > SHA256SUMS.txt
+   gpg --local-user EMAIL --armor --detach-sign SHA256SUMS.txt     # the signature: SHA256SUMS.txt.asc
+   gpg --verify SHA256SUMS.txt.asc SHA256SUMS.txt                  # must say: Good signature
+   ```
+
+   `EMAIL` is the release key's address (see [The release key](#the-release-key)). Sign only once the README shows
+   the key's fingerprint and how to check a signature; until then, release without `SHA256SUMS.txt.asc`.
+
+7. **Create the release.** On the repository's main page, click **Releases** on the right, then **Draft a new
    release** (before the first release, the link is called **Create a new release**). Open **Choose a tag**, type
-   the version with a `v` in front (for example `v0.1.2`) and click **Create new tag**; **Target**: `main`.
+   the version with a `v` in front (for example `v0.1.3`) and click **Create new tag**; **Target**: `main`.
    **Release title**: `SeedLock` and the version. In **Describe this release**, say what changed, and that SeedLock
-   is not independently audited. Leave **This is a pre-release** off and **Set as latest release** on, so that this
-   release is the newest one, and click **Publish release**.
+   is not independently audited. Drag the three programs, `SHA256SUMS.txt` and `SHA256SUMS.txt.asc` into the box for
+   binaries below it, and wait until all of them are listed. Leave **This is a pre-release** off and **Set as latest
+   release** on, so that this release is the newest one, and click **Publish release** (or **Save draft**, to finish
+   later). GitHub adds the source code of the tag by itself, as **Source code (zip)** and **Source code (tar.gz)**.
 
-**What to attach: nothing.** GitHub adds the source code of the tag to every release by itself, as **Source code
-(zip)** and **Source code (tar.gz)**, and that is what the README tells users to download and build.
+Change nothing on GitHub between step 3 and step 7: the tag that step 7 creates must hold exactly the files the
+programs were built from.
 
-**Checksums and signatures.** A list of SHA-256 checksums on the release page only shows that a download arrived
-complete: whoever could change the release could change the list too. Only a signature, made with a key that people
-get from somewhere else (for example a PGP key published on a website and on key servers), shows who made the files.
-For a release of source code that people build themselves, what protects them is the GitHub account itself: sign in
-with two-factor authentication, best with a passkey or a security key. The check that matters most for users is
-already in the README: the program they built and the copy on their offline computer must have the same SHA-256
-checksum. Do not publish checksums of GitHub's own source code archives: GitHub generates them on request, caches
-them for a while and then deletes them
+**Why a checksum list, and why signed.** With `SHA256SUMS.txt`, users check that the program they downloaded is
+complete and is the file the list names, and the same number then checks the copy on their offline computer. But
+whoever could change the release could change the list too. A signature made with the release key shows that the list
+comes from the holder of that key, as long as people can compare the key's fingerprint with one published outside
+GitHub. Do not put checksums of GitHub's own source code archives in the list: GitHub generates them on request,
+caches them for a while and then deletes them
 ([GitHub's documentation](https://docs.github.com/en/repositories/working-with-files/using-files/downloading-source-code-archives)),
-so their exact bytes are not something to promise.
+so their exact bytes are not something to promise. Whatever else, protect the GitHub account itself with two-factor
+sign-in, best with a passkey or a security key.
 
-**Ready-made programs (not offered yet).** To let users skip installing Rust, a release could also carry the program
-built on each system: Linux (built on the oldest Linux version to be supported, see
-[Which computers a build runs on](#which-computers-a-build-runs-on)), macOS with Apple silicon, macOS with Intel, and
-Windows, each named after its version and system (`seedlock-X.Y.Z-linux-x86_64`,
-`seedlock-X.Y.Z-windows-x86_64.exe`...). Then a checksum list is needed (`sha256sum seedlock-* > SHA256SUMS.txt`),
-best signed (`gpg --clearsign SHA256SUMS.txt`), and the README needs a second way through Parts 1 and 2: download the
-program for your system, compare its checksum with the list, and copy it to the offline computer. Downloaded programs that are not signed by Apple or Microsoft also
-meet those systems' warnings (macOS Gatekeeper, Windows SmartScreen), which the README would have to explain.
+**The programs are not signed by Apple or Microsoft** (that needs their paid developer programs), so the first time a
+downloaded program starts, macOS says that Apple could not verify it and Windows shows "Windows protected your PC". The
+README (Part 3) says what to do.
+
+### The release key
+
+Create it once, on the computer where you make the checksum list:
+
+1. `gpg --full-generate-key`: press Enter for the default kind of key (ECC with Curve 25519 in GnuPG 2.4; older
+   versions offer RSA, also fine), then give an expiry date (for example `2y`, two years; it can be extended later),
+   your name or "SeedLock releases", an email address for SeedLock, and a strong passphrase.
+2. `gpg --fingerprint EMAIL` shows the key's fingerprint, 40 letters and digits in groups of four.
+3. `gpg --armor --export EMAIL > docs/release-key.asc` writes the public key; put that file in the repository.
+4. Publish the same public key outside GitHub, so that users have something to compare with: upload
+   `docs/release-key.asc` at [keys.openpgp.org](https://keys.openpgp.org/upload), click **Send Verification Email**
+   on the page that follows, and confirm with the link in that email (until then, the key server does not publish the
+   key's address). If you have a website or a profile elsewhere, show the fingerprint there too.
+5. Add the fingerprint to the README (Part 1, Way A), with how to check a signature.
+6. Keep a copy of the secret key in a safe place, apart from the computer, for example on an encrypted USB stick.
+   Write it straight onto the stick, not into SeedLock's folder, from where it could end up uploaded with the other
+   files: in a terminal, type `cd `, drag the stick onto the window and press Enter, then:
+
+   ```sh
+   gpg --armor --export-secret-keys EMAIL > seedlock-release-key-SECRET.asc
+   cp ~/.gnupg/openpgp-revocs.d/*.rev .
+   ```
+
+   The second line copies the revocation certificate that GnuPG made with the key: if the key is ever lost or
+   stolen, it lets you tell everyone not to trust it any more.
 
 ## Supply chain and the offline audit
 
@@ -468,9 +529,12 @@ docs/GUIDE.md             the user guide
 docs/DEVELOPMENT.md       this page
 docs/FORMAT.md            the backup format specification, with a test vector
 docs/logo/                the logo (SVG and PNG files) and make_logo.py, which draws them: all rights reserved, not MIT
+.cargo/config.toml        build settings: the C runtime inside the Windows program
 install.sh                builds the program and installs it, so that `seedlock` starts it from any folder
 LICENSE                   the MIT license (for everything except the logo)
-tools/                    recover.py, crosscheck*.py, interactive_test.py, qr_flow_test.py, multisig_test.py, audit-offline.sh
+tools/                    recover.py, crosscheck*.py, interactive_test.py, qr_flow_test.py, multisig_test.py, audit-offline.sh,
+                          build-release.sh (the ready-made programs of a release)
+dist/                     made by build-release.sh: the ready-made programs (never committed)
 seedlocker backups/       made where you run seedlock: your backups and their QR pictures (never committed)
 seedlocker transactions/  made where you run seedlock: signed files of scanned transactions, and QR pages (never committed)
 ```
@@ -485,3 +549,8 @@ signed one leaves as a file or as an animated QR code; a command-line program on
 `seedlock-core` with UniFFI (Kotlin/Swift) or a Tauri 2 mobile shell, add camera scanning for backup and PSBT QR
 codes (the core already collects animated UR frames, and reading QR codes from camera pictures is in the command-line
 crate), then a simple graphical interface. The core has no I/O, so none of this needs a rewrite.
+
+**Reproducible builds.** Today a program that a user builds is not byte for byte the same file as a release's
+ready-made program (file paths and the compiler versions are recorded in it). Building the release programs in a fixed
+environment (the same Rust and C compiler versions and the same paths, for example in a container) would let anyone
+rebuild a release and compare the SHA-256 with `SHA256SUMS.txt`, without having to trust the release key.

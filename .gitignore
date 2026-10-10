@@ -15,3 +15,5 @@ __pycache__/
 # files that macOS and Windows leave in folders
 .DS_Store
 Thumbs.db
+# the ready-made programs that tools/build-release.sh makes
+/dist/
