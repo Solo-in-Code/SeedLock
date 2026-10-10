@@ -1,0 +1,17 @@
+/target
+# never commit backups or transactions by accident
+*.seedlock
+*.psbt
+/seedlocker backups/
+**/seedlocker backups/
+/seedlocker transactions/
+**/seedlocker transactions/
+# test leftovers: Python caches, and jsdom when installed here for tools/qr_flow_test.py
+__pycache__/
+*.pyc
+/node_modules/
+/package.json
+/package-lock.json
+# files that macOS and Windows leave in folders
+.DS_Store
+Thumbs.db
