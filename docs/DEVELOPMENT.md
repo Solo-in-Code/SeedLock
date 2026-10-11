@@ -127,7 +127,10 @@ A release is a version of SeedLock that people download exactly as it was tested
    in, click **Add file > Upload files**, and drag the file in (a file with the same name is replaced). Upload the
    files themselves, never a zip file: GitHub does not unpack it. Most file managers hide files and folders whose
    names start with a dot, such as `.cargo/config.toml`: create those with **Add file > Create new file** instead,
-   typing the whole path as the name (`.cargo/config.toml`) and pasting the content.
+   typing the whole path as the name (`.cargo/config.toml`) and pasting the content (copy it from the file itself,
+   opened in a text editor, so that no spaces get in front of the lines). Then check that every file is in its
+   folder: a file uploaded on the repository's main page lands at the top. To remove a file from GitHub, open it,
+   click **...** at the top right, then **Delete file** and **Commit changes**.
 4. **Build the programs** from exactly those files: on each computer, download them from GitHub (**Code > Download
    ZIP**), then, in that folder:
 
@@ -135,12 +138,26 @@ A release is a version of SeedLock that people download exactly as it was tested
    |---|---|---|
    | Linux (x86-64) | `sh tools/build-release.sh` | `dist/seedlock-X.Y.Z-linux-x86_64` |
    | macOS | `sh tools/build-release.sh` | `dist/seedlock-X.Y.Z-macos` |
-   | Windows | `rustup target add x86_64-pc-windows-msvc`, `cargo build --release --locked --target x86_64-pc-windows-msvc`, then `Copy-Item target\x86_64-pc-windows-msvc\release\seedlock.exe seedlock-X.Y.Z-windows-x86_64.exe` | `seedlock-X.Y.Z-windows-x86_64.exe` |
+   | Windows | the four commands below, in PowerShell | `seedlock-X.Y.Z-windows-x86_64.exe` |
+
+   ```powershell
+   rustup target add x86_64-pc-windows-msvc
+   cargo build --release --locked --target x86_64-pc-windows-msvc --config "target.x86_64-pc-windows-msvc.rustflags=['--remap-path-prefix=$env:USERPROFILE=~']"
+   Copy-Item target\x86_64-pc-windows-msvc\release\seedlock.exe seedlock-X.Y.Z-windows-x86_64.exe
+   [Text.Encoding]::ASCII.GetString([IO.File]::ReadAllBytes("$PWD\seedlock-X.Y.Z-windows-x86_64.exe")).Contains($env:USERPROFILE)
+   ```
 
    `X.Y.Z` is the version. The script needs Rust installed with rustup, and on Linux musl; it says how to install
    what is missing. It prints each program's SHA-256; on Windows,
    `(Get-FileHash seedlock-X.Y.Z-windows-x86_64.exe).Hash` shows it. Write them down. (Naming the Windows target makes
    an x86-64 program even on a Windows computer with an ARM processor, where Rust would otherwise build for ARM.)
+
+   **Your user name stays out of the programs.** Rust writes the full path of each library's source files into the
+   program, for its error messages, and that path holds the user name of the computer that builds it:
+   `/home/NAME/.cargo/...`, `/Users/NAME/.cargo/...` or `C:\Users\NAME\.cargo\...`. The script, and the `--config`
+   part of the Windows command, make Rust write `~` in place of the home folder (`--remap-path-prefix`; on Windows it
+   is added to the setting in `.cargo/config.toml`, which stays in force). The script then checks that the program
+   no longer contains the home folder's path; on Windows the last command does that, and must print `False`.
 5. **Try each program** on its system: it starts, shows the version in the menu's title, and opens a backup. Best on
    a computer where Rust was never installed, as the users' computers are. On Linux, the three test scripts also take
    the ready-made program: give its path instead of `target/release/seedlock`.
