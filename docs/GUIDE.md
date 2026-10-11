@@ -75,9 +75,12 @@ Do this on the online computer, before you copy the program to the offline one:
    ```
 
 4. **Read what it says.** It must say **Good signature**, and the line `Primary key fingerprint:` must show exactly the
-   fingerprint above. It also says `WARNING: This key is not certified with a trusted signature!`. That is normal: it
-   only means that you have not certified the key yourself in GnuPG, and comparing the fingerprint is what counts. If
-   it says **BAD signature**, or shows another fingerprint, do not use the download.
+   fingerprint above. It also shows a warning,
+   `WARNING: The key's User ID is not certified with a trusted signature!` (or, from some versions of GnuPG,
+   `WARNING: This key is not certified with a trusted signature!`), and
+   `There is no indication that the signature belongs to the owner.` That is normal: it only means that you have not
+   certified the key yourself in GnuPG, and comparing the fingerprint is what counts. If it says **BAD signature**,
+   or shows another fingerprint, do not use the download.
 5. Then compare the program's fingerprint with `SHA256SUMS.txt`, as the README says (Part 1, Way A, step 2).
 
 The same fingerprint is in the README. If you know SeedLock's maintainer from somewhere else, such as a website or a
