@@ -6,7 +6,8 @@
 #                                                       Linux, old or new, because it needs no system library
 #   macOS:          dist/seedlock-VERSION-macos         one file for Macs with Apple chips and with Intel chips
 #
-# Windows is built with two commands, see "Making a release" in docs/DEVELOPMENT.md.
+# Neither contains the user name of the computer that built it (see below). Windows is built with a few commands,
+# see "Making a release" in docs/DEVELOPMENT.md.
 #
 #   sh tools/build-release.sh
 #
@@ -15,11 +16,21 @@
 #   Debian, Ubuntu: sudo apt install musl-tools     Arch: sudo pacman -S musl     Fedora: sudo dnf install musl-gcc
 set -eu
 cd "$(dirname "$0")/.."
-# The release programs are built the same way everywhere: into this folder's "target", and without extra compiler
-# flags that this computer's settings might add (for example a target-cpu that other computers do not have).
+# The release programs are built the same way everywhere: into this folder's "target", and with only the compiler
+# flags below. CARGO_ENCODED_RUSTFLAGS replaces every other source of flags (RUSTFLAGS, Cargo's settings files), so
+# nothing from this computer's settings gets in (for example a target-cpu that other computers do not have).
+#
+# Rust writes the full path of each library's source files into the program, for its error messages, and that path
+# holds this computer's user name: /home/NAME/.cargo/... on Linux, /Users/NAME/.cargo/... on a Mac.
+# --remap-path-prefix makes it write ~ in place of the home folder; the end of this script checks that it did.
 export CARGO_TARGET_DIR="$PWD/target"
-unset RUSTFLAGS CARGO_ENCODED_RUSTFLAGS CARGO_BUILD_RUSTFLAGS CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_RUSTFLAGS \
-    CARGO_TARGET_AARCH64_APPLE_DARWIN_RUSTFLAGS CARGO_TARGET_X86_64_APPLE_DARWIN_RUSTFLAGS
+unset RUSTFLAGS
+flags="--remap-path-prefix=$HOME=~"
+if [ -n "${CARGO_HOME:-}" ]; then
+    # Cargo keeps the libraries' source files in another folder: that one too (\037 separates the flags)
+    flags="$flags$(printf '\037')--remap-path-prefix=$CARGO_HOME=~/.cargo"
+fi
+export CARGO_ENCODED_RUSTFLAGS="$flags"
 
 version=$(sed -n 's/^version = "\(.*\)"$/\1/p' Cargo.toml | head -n 1)
 if [ -z "$version" ]; then
@@ -85,6 +96,12 @@ if [ "$shown" != "seedlock $version" ]; then
     echo "The new program says \"$shown\" instead of \"seedlock $version\": something went wrong." >&2
     exit 1
 fi
+for folder in "$HOME" ${CARGO_HOME:+"$CARGO_HOME"}; do
+    if grep -qaF "$folder/" "$out"; then
+        echo "The new program still contains the path $folder (and with it your user name): something went wrong." >&2
+        exit 1
+    fi
+done
 if command -v sha256sum >/dev/null 2>&1; then
     sum=$(sha256sum "$out" | cut -d' ' -f1)
 else
