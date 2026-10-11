@@ -134,30 +134,24 @@ A release is a version of SeedLock that people download exactly as it was tested
 4. **Build the programs** from exactly those files: on each computer, download them from GitHub (**Code > Download
    ZIP**), then, in that folder:
 
-   | System | Commands | The program |
+   | System | Command | The program |
    |---|---|---|
    | Linux (x86-64) | `sh tools/build-release.sh` | `dist/seedlock-X.Y.Z-linux-x86_64` |
    | macOS | `sh tools/build-release.sh` | `dist/seedlock-X.Y.Z-macos` |
-   | Windows | the four commands below, in PowerShell | `seedlock-X.Y.Z-windows-x86_64.exe` |
+   | Windows | `powershell -ExecutionPolicy Bypass -File tools\build-release.ps1` | `dist\seedlock-X.Y.Z-windows-x86_64.exe` |
 
-   ```powershell
-   rustup target add x86_64-pc-windows-msvc
-   cargo build --release --locked --target x86_64-pc-windows-msvc --config "target.x86_64-pc-windows-msvc.rustflags=['--remap-path-prefix=$env:USERPROFILE=~']"
-   Copy-Item target\x86_64-pc-windows-msvc\release\seedlock.exe seedlock-X.Y.Z-windows-x86_64.exe
-   [Text.Encoding]::ASCII.GetString([IO.File]::ReadAllBytes("$PWD\seedlock-X.Y.Z-windows-x86_64.exe")).Contains($env:USERPROFILE)
-   ```
-
-   `X.Y.Z` is the version. The script needs Rust installed with rustup, and on Linux musl; it says how to install
-   what is missing. It prints each program's SHA-256; on Windows,
-   `(Get-FileHash seedlock-X.Y.Z-windows-x86_64.exe).Hash` shows it. Write them down. (Naming the Windows target makes
-   an x86-64 program even on a Windows computer with an ARM processor, where Rust would otherwise build for ARM.)
+   `X.Y.Z` is the version. On Windows, type the line in PowerShell or in Command Prompt, both work;
+   `-ExecutionPolicy Bypass` lets Windows run this one script, without changing any setting. The scripts need Rust
+   installed with rustup, and on Linux musl; they say how to install what is missing. Each one prints the program's
+   SHA-256: write them down. (The Windows script makes an x86-64 program even on a Windows computer with an ARM
+   processor, where Rust would otherwise build for ARM.)
 
    **Your user name stays out of the programs.** Rust writes the full path of each library's source files into the
    program, for its error messages, and that path holds the user name of the computer that builds it:
-   `/home/NAME/.cargo/...`, `/Users/NAME/.cargo/...` or `C:\Users\NAME\.cargo\...`. The script, and the `--config`
-   part of the Windows command, make Rust write `~` in place of the home folder (`--remap-path-prefix`; on Windows it
-   is added to the setting in `.cargo/config.toml`, which stays in force). The script then checks that the program
-   no longer contains the home folder's path; on Windows the last command does that, and must print `False`.
+   `/home/NAME/.cargo/...`, `/Users/NAME/.cargo/...` or `C:\Users\NAME\.cargo\...`. The scripts make Rust write `~`
+   in place of the home folder (`--remap-path-prefix`; on Windows it is added to the setting in `.cargo/config.toml`,
+   which stays in force), then check that the program no longer contains the home folder's path, and stop with a
+   message if it does. So build release programs with the scripts, never with `cargo build` alone.
 5. **Try each program** on its system: it starts, shows the version in the menu's title, and opens a backup. Best on
    a computer where Rust was never installed, as the users' computers are. On Linux, the three test scripts also take
    the ready-made program: give its path instead of `target/release/seedlock`.
@@ -578,8 +572,8 @@ docs/logo/                the logo (SVG and PNG files) and make_logo.py, which d
 install.sh                builds the program and installs it, so that `seedlock` starts it from any folder
 LICENSE                   the MIT license (for everything except the logo)
 tools/                    recover.py, crosscheck*.py, interactive_test.py, qr_flow_test.py, multisig_test.py, audit-offline.sh,
-                          build-release.sh (the ready-made programs of a release)
-dist/                     made by build-release.sh: the ready-made programs (never committed)
+                          build-release.sh and build-release.ps1 (the ready-made programs of a release)
+dist/                     made by build-release.sh and .ps1: the ready-made programs (never committed)
 seedlocker backups/       made where you run seedlock: your backups and their QR pictures (never committed)
 seedlocker transactions/  made where you run seedlock: signed files of scanned transactions, and QR pages (never committed)
 ```

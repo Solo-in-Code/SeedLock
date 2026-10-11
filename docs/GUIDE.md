@@ -75,9 +75,9 @@ Do this on the online computer, before you copy the program to the offline one:
    ```
 
 4. **Read what it says.** It must say **Good signature**, and the line `Primary key fingerprint:` must show exactly the
-   fingerprint above. It also shows a warning,
-   `WARNING: The key's User ID is not certified with a trusted signature!` (or, from some versions of GnuPG,
-   `WARNING: This key is not certified with a trusted signature!`), and
+   fingerprint above. It also shows a warning, either
+   `WARNING: This key is not certified with a trusted signature!` or
+   `WARNING: The key's User ID is not certified with a trusted signature!` (that depends on the signature), and
    `There is no indication that the signature belongs to the owner.` That is normal: it only means that you have not
    certified the key yourself in GnuPG, and comparing the fingerprint is what counts. If it says **BAD signature**,
    or shows another fingerprint, do not use the download.
