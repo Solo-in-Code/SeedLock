@@ -6,8 +6,7 @@
 #                                                       Linux, old or new, because it needs no system library
 #   macOS:          dist/seedlock-VERSION-macos         one file for Macs with Apple chips and with Intel chips
 #
-# Neither contains the user name of the computer that built it (see below). Windows is built with a few commands,
-# see "Making a release" in docs/DEVELOPMENT.md.
+# Neither contains the user name of the computer that built it (see below). Windows: tools/build-release.ps1.
 #
 #   sh tools/build-release.sh
 #
@@ -85,7 +84,7 @@ MSG
         lipo -info "$out"
         ;;
     *)
-        echo "This script runs on Linux and macOS. On Windows, see \"Making a release\" in docs/DEVELOPMENT.md." >&2
+        printf '%s\n' 'This script runs on Linux and macOS. On Windows: powershell -ExecutionPolicy Bypass -File tools\build-release.ps1' >&2
         exit 1
         ;;
 esac
