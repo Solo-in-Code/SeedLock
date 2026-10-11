@@ -149,12 +149,12 @@ A release is a version of SeedLock that people download exactly as it was tested
 
    ```sh
    sha256sum seedlock-X.Y.Z-* > SHA256SUMS.txt       # on a Mac: shasum -a 256 seedlock-X.Y.Z-* > SHA256SUMS.txt
-   gpg --local-user EMAIL --armor --detach-sign SHA256SUMS.txt     # the signature: SHA256SUMS.txt.asc
-   gpg --verify SHA256SUMS.txt.asc SHA256SUMS.txt                  # must say: Good signature
+   gpg --local-user E43521D944AE9BAA9FB2D11D08B65FB65CB1D806 --armor --detach-sign SHA256SUMS.txt
+   gpg --verify SHA256SUMS.txt.asc SHA256SUMS.txt    # must say: Good signature, with the key's fingerprint
    ```
 
-   `EMAIL` is the release key's address (see [The release key](#the-release-key)). Sign only once the README shows
-   the key's fingerprint and how to check a signature; until then, release without `SHA256SUMS.txt.asc`.
+   The second line signs the list with SeedLock's release key (see [The release key](#the-release-key)) and writes
+   the signature, `SHA256SUMS.txt.asc`.
 
 7. **Create the release.** On the repository's main page, click **Releases** on the right, then **Draft a new
    release** (before the first release, the link is called **Create a new release**). Open **Choose a tag**, type
@@ -184,18 +184,44 @@ README (Part 3) says what to do.
 
 ### The release key
 
-Create it once, on the computer where you make the checksum list:
+SeedLock's release key signs the checksum lists. Its fingerprint, which the README and the guide show too:
+
+```
+E435 21D9 44AE 9BAA 9FB2  D11D 08B6 5FB6 5CB1 D806
+```
+
+It was made on 10 October 2026 and expires on 9 October 2028. Before then, extend it by two more years, the key and
+its subkey:
+
+```sh
+gpg --quick-set-expire E43521D944AE9BAA9FB2D11D08B65FB65CB1D806 2y
+gpg --quick-set-expire E43521D944AE9BAA9FB2D11D08B65FB65CB1D806 2y '*'
+```
+
+Then export it again into `docs/release-key.asc` (below) and upload it to the repository and to keys.openpgp.org.
+Signatures made before the key expires keep checking as good.
+
+The public key is in the repository as [`docs/release-key.asc`](release-key.asc), and on
+[keys.openpgp.org](https://keys.openpgp.org). In SeedLock's folder, this writes it:
+
+```sh
+gpg --armor --export E43521D944AE9BAA9FB2D11D08B65FB65CB1D806 > docs/release-key.asc
+```
+
+If the key ever has to be replaced, make a new one the same way:
 
 1. `gpg --full-generate-key`: press Enter for the default kind of key (ECC with Curve 25519 in GnuPG 2.4; older
    versions offer RSA, also fine), then give an expiry date (for example `2y`, two years; it can be extended later),
-   your name or "SeedLock releases", an email address for SeedLock, and a strong passphrase.
-2. `gpg --fingerprint EMAIL` shows the key's fingerprint, 40 letters and digits in groups of four.
+   the name "SeedLock releases", an email address for SeedLock, and a strong passphrase.
+2. `gpg --fingerprint EMAIL` shows the new key's fingerprint, 40 letters and digits in groups of four.
 3. `gpg --armor --export EMAIL > docs/release-key.asc` writes the public key; put that file in the repository.
 4. Publish the same public key outside GitHub, so that users have something to compare with: upload
    `docs/release-key.asc` at [keys.openpgp.org](https://keys.openpgp.org/upload), click **Send Verification Email**
    on the page that follows, and confirm with the link in that email (until then, the key server does not publish the
    key's address). If you have a website or a profile elsewhere, show the fingerprint there too.
-5. Add the fingerprint to the README (Part 1, Way A), with how to check a signature.
+5. Put the new fingerprint everywhere this one is: the README (Part 1, Way A), the guide (Checking a downloaded
+   program), and this page, also in the signing command above. `cargo test` fails if they are not all the same (the
+   test `the_release_key_fingerprint_is_the_same_everywhere`).
 6. Keep a copy of the secret key in a safe place, apart from the computer, for example on an encrypted USB stick.
    Write it straight onto the stick, not into SeedLock's folder, from where it could end up uploaded with the other
    files: in a terminal, type `cd `, drag the stick onto the window and press Enter, then:
@@ -251,7 +277,7 @@ If you publish built programs and not only the source, include those libraries' 
 
 ### Automated tests
 
-**128 automated tests** (`cargo test --workspace --locked`):
+**129 automated tests** (`cargo test --workspace --locked`):
 
 * **68 for the core library:** backup tamper detection on every bit; BIP39/32/44/49/84/86 test vectors; BIP380
   descriptor checksums; PSBT signing with signature verification for SegWit v0 and Taproot; the swapped-change attack;
@@ -277,12 +303,13 @@ If you publish built programs and not only the source, include those libraries' 
   tables, macOS `route` output and Windows `route print` output in English and Spanish; a virtual machine recognised
   from its firmware description (and real computers not); Windows registry values; a scanned backup matched to its
   file; and which files of an earlier version go into the cosigner keys folder.
-* **25 end-to-end tests of the real program:** among them `sign --scan` through a stand-in ffmpeg; signing without
+* **26 end-to-end tests of the real program:** among them `sign --scan` through a stand-in ffmpeg; signing without
   `--network` (a test-network transaction is recognised and shown with testnet addresses, a mainnet one is called real
   bitcoin, `--network` still wins, and a transaction with no key paths gets a clear error instead of a guess); a
   registered 2-of-3 wallet signed by two cosigners in turn, refused when unregistered, with the files an earlier
   version kept next to the backups moved into their folders first; the version in the menu's title, above the
-  menu, and from `--version`; and the same version everywhere the README and the guides give it.
+  menu, and from `--version`; the same version everywhere the README and the guides give it; and the same release key
+  fingerprint everywhere they give it, which is also the fingerprint of the key in `docs/release-key.asc`.
 
 ### Independent implementations agree
 
@@ -528,6 +555,7 @@ crates/seedlock-cli       the `seedlock` program: prompts, menu, files, QR pictu
 docs/GUIDE.md             the user guide
 docs/DEVELOPMENT.md       this page
 docs/FORMAT.md            the backup format specification, with a test vector
+docs/release-key.asc      the public release key that signs the checksum lists of the releases
 docs/logo/                the logo (SVG and PNG files) and make_logo.py, which draws them: all rights reserved, not MIT
 .cargo/config.toml        build settings: the C runtime inside the Windows program
 install.sh                builds the program and installs it, so that `seedlock` starts it from any folder

@@ -15,17 +15,18 @@ Sparrow 2.5; where older versions name something differently, this guide says so
 ## Contents
 
 1. [Words used in this guide](#words-used-in-this-guide)
-2. [Starting SeedLock](#starting-seedlock)
-3. [Your backups and the other files](#your-backups-and-the-other-files)
-4. [Create a seed: menu 1](#create-a-seed-menu-1)
-5. [More about backups: menus 2, 3, 4, 7 and 8](#more-about-backups-menus-2-3-4-7-and-8)
-6. [Set up Sparrow: menu 5](#set-up-sparrow-menu-5)
-7. [Sign a payment: menu 6](#sign-a-payment-menu-6)
-8. [Multisig wallets: menu 10](#multisig-wallets-menu-10)
-9. [QR codes and the camera: menu 9](#qr-codes-and-the-camera-menu-9)
-10. [Security advice](#security-advice)
-11. [The command line](#the-command-line)
-12. [Opening a backup without SeedLock](#opening-a-backup-without-seedlock)
+2. [Checking a downloaded program](#checking-a-downloaded-program)
+3. [Starting SeedLock](#starting-seedlock)
+4. [Your backups and the other files](#your-backups-and-the-other-files)
+5. [Create a seed: menu 1](#create-a-seed-menu-1)
+6. [More about backups: menus 2, 3, 4, 7 and 8](#more-about-backups-menus-2-3-4-7-and-8)
+7. [Set up Sparrow: menu 5](#set-up-sparrow-menu-5)
+8. [Sign a payment: menu 6](#sign-a-payment-menu-6)
+9. [Multisig wallets: menu 10](#multisig-wallets-menu-10)
+10. [QR codes and the camera: menu 9](#qr-codes-and-the-camera-menu-9)
+11. [Security advice](#security-advice)
+12. [The command line](#the-command-line)
+13. [Opening a backup without SeedLock](#opening-a-backup-without-seedlock)
 
 ## Words used in this guide
 
@@ -43,6 +44,44 @@ Sparrow 2.5; where older versions name something differently, this guide says so
   SeedLock asks.
 * **Mainnet** is real bitcoin. **Testnet** and **signet** are test networks: their coins have no value, so they are
   for trying things out.
+
+## Checking a downloaded program
+
+If you downloaded the ready-made program (README, Part 1, Way A), the README has you compare its fingerprint with
+`SHA256SUMS.txt`: that shows that the download is complete and is the file the list names. The signature shows more:
+that `SHA256SUMS.txt` itself was made by SeedLock's maintainer, with SeedLock's release key. Someone who managed to
+change the files on the release page could change the list too, but could not sign it with that key.
+
+SeedLock's release key has this fingerprint:
+
+```
+E435 21D9 44AE 9BAA 9FB2  D11D 08B6 5FB6 5CB1 D806
+```
+
+Do this on the online computer, before you copy the program to the offline one:
+
+1. **Install GnuPG,** the free program that checks signatures. Linux: it is usually there already (the command
+   `gpg`; otherwise `sudo apt install gnupg`, or `sudo pacman -S gnupg` on Arch). Mac: `brew install gnupg`, with
+   [Homebrew](https://brew.sh). Windows: Gpg4win, from [gpg4win.org](https://gpg4win.org).
+2. **Download two more files** into the folder that holds the program and `SHA256SUMS.txt`:
+   * `SHA256SUMS.txt.asc`, the signature, from the same release's **Assets**;
+   * the release key, [`release-key.asc`](release-key.asc): on SeedLock's GitHub page it is in the folder `docs`;
+     open it and click the button **Download raw file**.
+3. **Open a terminal in that folder** (as in the README, Part 1, Way A, step 2) and type:
+
+   ```sh
+   gpg --import release-key.asc
+   gpg --verify SHA256SUMS.txt.asc SHA256SUMS.txt
+   ```
+
+4. **Read what it says.** It must say **Good signature**, and the line `Primary key fingerprint:` must show exactly the
+   fingerprint above. It also says `WARNING: This key is not certified with a trusted signature!`. That is normal: it
+   only means that you have not certified the key yourself in GnuPG, and comparing the fingerprint is what counts. If
+   it says **BAD signature**, or shows another fingerprint, do not use the download.
+5. Then compare the program's fingerprint with `SHA256SUMS.txt`, as the README says (Part 1, Way A, step 2).
+
+The same fingerprint is in the README. If you know SeedLock's maintainer from somewhere else, such as a website or a
+profile, compare it there too: someone who could change SeedLock's GitHub page could change this text as well.
 
 ## Starting SeedLock
 

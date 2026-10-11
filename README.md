@@ -90,6 +90,17 @@ The offline computer needs one program file. There are two ways to get it:
    It shows a long number: the program's fingerprint (its SHA-256 checksum). Open `SHA256SUMS.txt` with a text
    editor: the number next to the program's name must be exactly the same (upper or lower case does not matter). If
    it is not, the download is damaged: delete it, and do not use it.
+
+   **Safer still, check the signature too.** `SHA256SUMS.txt` is signed with SeedLock's release key. The key has a
+   fingerprint of its own, a different number from the program's:
+
+   ```
+   E435 21D9 44AE 9BAA 9FB2  D11D 08B6 5FB6 5CB1 D806
+   ```
+
+   The checksum shows that your download is complete; the signature shows that the list itself comes from
+   SeedLock's maintainer. The guide explains how to check it, in a few commands:
+   [Checking a downloaded program](docs/GUIDE.md#checking-a-downloaded-program).
 3. **Rename the program** to `seedlock`, in File Explorer, Finder or your file manager. On Windows, type just
    `seedlock` too: File Explorer keeps the `.exe` at the end by itself. The fingerprint stays the same, so keep
    `SHA256SUMS.txt`: in Part 2 it goes to the offline computer with the program, to check the copy there.
@@ -303,6 +314,8 @@ Everything in detail, including multisig and the camera, is in the [user guide](
 |---|---|
 | `cargo: command not found`, after installing Rust | Close the terminal and open a new one. |
 | The download's fingerprint is not the one in `SHA256SUMS.txt` | Delete the file and download it again. If it is still different, do not use it. |
+| `gpg: Can't check signature: No public key` | Import the release key first: `gpg --import release-key.asc` (see the guide, Checking a downloaded program). |
+| `gpg: BAD signature` | `SHA256SUMS.txt` or its signature is not the one SeedLock's maintainer made: do not use the download. |
 | ``linker `cc` not found`` or ``linker `link.exe` not found``, while building | Install the C compiler: Part 1, Way B, Step 1, item 2 for your system. |
 | `seedlock: command not found` | In SeedLock's folder, type `./seedlock`, with the `./`. |
 | `Permission denied`, when starting it | Type `chmod +x seedlock`, then `./seedlock` again. |

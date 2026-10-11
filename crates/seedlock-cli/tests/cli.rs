@@ -545,6 +545,92 @@ fn the_readme_and_the_guides_show_this_version() {
     assert!(found >= 4, "the README and the guides show the version in at least 4 places, not {found}");
 }
 
+/// The release key's fingerprint is the same everywhere the README and the guides give it (in groups of four, or in one
+/// piece in a command), and it is the fingerprint of the key in docs/release-key.asc, so that a new release key cannot
+/// leave an old fingerprint or an old key file behind.
+#[test]
+fn the_release_key_fingerprint_is_the_same_everywhere() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let is_hex = |word: &str, len: usize| word.len() == len && word.chars().all(|c| c.is_ascii_digit() || ('A'..='F').contains(&c));
+    let mut fingerprints = Vec::new();
+    for doc in ["README.md", "docs/GUIDE.md", "docs/DEVELOPMENT.md"] {
+        let text = std::fs::read_to_string(root.join(doc)).unwrap();
+        let words: Vec<&str> = text.split_whitespace().map(|w| w.trim_matches(|c: char| "`()[],.:;'\"".contains(c))).collect();
+        let mut in_doc = 0;
+        let mut i = 0;
+        while i < words.len() {
+            if is_hex(words[i], 40) {
+                fingerprints.push((doc, words[i].to_string()));
+                in_doc += 1;
+            } else if i + 10 <= words.len() && words[i..i + 10].iter().all(|w| is_hex(w, 4)) {
+                fingerprints.push((doc, words[i..i + 10].concat()));
+                in_doc += 1;
+                i += 9;
+            }
+            i += 1;
+        }
+        assert!(in_doc > 0, "{doc} does not give the release key's fingerprint");
+    }
+    let first = &fingerprints[0].1;
+    for (doc, fingerprint) in &fingerprints {
+        assert_eq!(fingerprint, first, "{doc} gives the release key's fingerprint as {fingerprint}, but README.md as {first}");
+    }
+    let of_file = openpgp_fingerprint(&std::fs::read_to_string(root.join("docs/release-key.asc")).unwrap());
+    assert_eq!(&of_file, first, "docs/release-key.asc holds the key {of_file}, but the documents give {first}");
+}
+
+/// The version 4 fingerprint of the first key in an armored OpenPGP key file: SHA-1 over 0x99, the two-byte length and
+/// the public key packet (RFC 4880, section 12.2).
+fn openpgp_fingerprint(armored: &str) -> String {
+    // the Base64 lines: after the empty line that ends the armor headers, up to the checksum ("=...") or the end line
+    let base64: String = armored
+        .lines()
+        .skip_while(|l| !l.trim().is_empty())
+        .skip(1)
+        .take_while(|l| !l.starts_with('=') && !l.starts_with("-----"))
+        .collect();
+    let mut bytes = Vec::new();
+    let (mut acc, mut bits) = (0u32, 0u32);
+    for c in base64.bytes().filter(|c| !c.is_ascii_whitespace() && *c != b'=') {
+        let value = match c {
+            b'A'..=b'Z' => c - b'A',
+            b'a'..=b'z' => c - b'a' + 26,
+            b'0'..=b'9' => c - b'0' + 52,
+            b'+' => 62,
+            b'/' => 63,
+            _ => panic!("not Base64: {}", c as char),
+        };
+        acc = (acc << 6) | u32::from(value);
+        bits += 6;
+        if bits >= 8 {
+            bits -= 8;
+            bytes.push((acc >> bits) as u8);
+            acc &= (1 << bits) - 1;
+        }
+    }
+    // the packet header: the old format (tag in bits 5-2) or the new format (tag in bits 5-0); the tag must be 6
+    let (start, len) = if bytes[0] & 0xC0 == 0x80 {
+        assert_eq!((bytes[0] >> 2) & 0x0F, 6, "the first packet must be a public key");
+        match bytes[0] & 0x03 {
+            0 => (2, usize::from(bytes[1])),
+            1 => (3, usize::from(u16::from_be_bytes([bytes[1], bytes[2]]))),
+            _ => (5, u32::from_be_bytes([bytes[1], bytes[2], bytes[3], bytes[4]]) as usize),
+        }
+    } else {
+        assert_eq!(bytes[0], 0xC6, "the first packet must be a public key");
+        match bytes[1] {
+            l @ 0..=191 => (2, usize::from(l)),
+            l @ 192..=223 => (3, ((usize::from(l) - 192) << 8) + usize::from(bytes[2]) + 192),
+            _ => (6, u32::from_be_bytes([bytes[2], bytes[3], bytes[4], bytes[5]]) as usize),
+        }
+    };
+    let packet = &bytes[start..start + len];
+    assert_eq!(packet[0], 4, "a version 4 key");
+    let mut hashed = vec![0x99, (len >> 8) as u8, len as u8];
+    hashed.extend_from_slice(packet);
+    seedlock_core::bitcoin::hashes::sha1::Hash::hash(&hashed).to_string().to_uppercase()
+}
+
 #[test]
 fn declining_leaves_nothing_signed() {
     let dir = tmp("decline");
