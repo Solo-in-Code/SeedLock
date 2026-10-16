@@ -1,7 +1,7 @@
-   # Windows: put the C runtime inside seedlock.exe (static linking), so that the program also starts on a
-   # computer without Microsoft's "Visual C++ Redistributable" (otherwise: "VCRUNTIME140.dll was not found").
-   [target.x86_64-pc-windows-msvc]
-   rustflags = ["-C", "target-feature=+crt-static"]
+# Windows: put the C runtime inside seedlock.exe (static linking), so that the program also starts on a
+# computer without Microsoft's "Visual C++ Redistributable" (otherwise: "VCRUNTIME140.dll was not found").
+[target.x86_64-pc-windows-msvc]
+rustflags = ["-C", "target-feature=+crt-static"]
 
-   [target.aarch64-pc-windows-msvc]
-   rustflags = ["-C", "target-feature=+crt-static"]
+[target.aarch64-pc-windows-msvc]
+rustflags = ["-C", "target-feature=+crt-static"]
