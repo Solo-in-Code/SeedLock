@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+
+    <!-- The camera reads transactions and backups from QR codes. -->
+    <uses-permission android:name="android.permission.CAMERA" />
+    <!-- Only to warn when the phone is connected to a network. It gives no access to any network. -->
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <!-- On purpose there is NO android.permission.INTERNET: without it, Android itself stops this app
+         from opening any network connection. This line takes it out of the finished app even if a
+         library ever asked for it (tools/audit-offline.sh checks both). -->
+    <uses-permission android:name="android.permission.INTERNET" tools:node="remove" />
+
+    <uses-feature android:name="android.hardware.camera.any" android:required="false" />
+
+    <!-- No backup of the app's files to Google's cloud, and no copying to another phone: the backups
+         stay where you put them. -->
+    <application
+        android:allowBackup="false"
+        android:dataExtractionRules="@xml/data_extraction_rules"
+        android:icon="@mipmap/ic_launcher"
+        android:roundIcon="@mipmap/ic_launcher"
+        android:label="SeedLock"
+        android:supportsRtl="true"
+        android:theme="@android:style/Theme.Material.Light">
+
+        <activity
+            android:name=".MainActivity"
+            android:exported="true"
+            android:screenOrientation="portrait"
+            android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboard|keyboardHidden|navigation|uiMode|density"
+            android:windowSoftInputMode="adjustResize">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+    </application>
+</manifest>

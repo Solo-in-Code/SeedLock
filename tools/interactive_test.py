@@ -445,8 +445,8 @@ qr_out = s.log.getvalue()
 assert NOTE in qr_out and "Your window is" not in qr_out, qr_out[-400:]
 grid = full_grid(qr_out[qr_out.index(NOTE):])
 backup_line = [l for l in open(os.path.join(work, "seedlocker backups", second + ".seedlock")).read().splitlines() if l.startswith("SEEDLOCK1:")][0]
-assert grid_text(grid) == backup_line
-print(f"F4c) TERM_PROGRAM=Apple_Terminal, backup QR (seedlock qr): the note, then the full style ({len(grid)} lines), decoded == the backup text: OK")
+assert grid_text(grid) == f"{backup_line}\n# name: {second}", "the backup text, then its name on a line of its own (since 0.2.0)"
+print(f"F4c) TERM_PROGRAM=Apple_Terminal, backup QR (seedlock qr): the note, then the full style ({len(grid)} lines), decoded == the backup text and its name line: OK")
 
 # ---------------------------------------------------------------- H) is this computer online? (said before the menu)
 s = Session(env=dict(os.environ, SEEDLOCK_TEST_NET_DIR=os.path.join(NET, "online")))

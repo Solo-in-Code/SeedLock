@@ -1,0 +1,23 @@
+[package]
+name = "seedlock-ffi"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "SeedLock for phones: seedlock-core made callable from Kotlin (Android) and later Swift (iPhone), with UniFFI"
+publish = false
+
+[lib]
+name = "seedlock_ffi"
+# cdylib: the libseedlock_ffi.so that the Android app loads; lib: for the tests
+crate-type = ["cdylib", "lib"]
+
+[dependencies]
+seedlock-core = { path = "../seedlock-core" }
+seedlock-qr = { path = "../seedlock-qr" }
+thiserror = "1"
+uniffi = "0.32"
+zeroize = "1"
+
+[dev-dependencies]
+# to read back the UR texts of the QR codes in the tests (the same version as seedlock-core's)
+ur = "0.5.2"

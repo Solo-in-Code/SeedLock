@@ -14,7 +14,7 @@ With SeedLock you can:
   QR code with the computer's camera;
 * be one of the keys of a **multisig wallet** (for example 2 of 3).
 
-> **Status: version 0.1.2, not independently audited.** Nobody outside this project has reviewed it yet. Try it on
+> **Status: version 0.2.0, not independently audited.** Nobody outside this project has reviewed it yet. Try it on
 > testnet, or with a small amount, first. Never type a real seed into a website, a chat or an online computer.
 
 ## Contents
@@ -66,9 +66,9 @@ The offline computer needs one program file. There are two ways to get it:
 
    | Offline computer | Program to download |
    |---|---|
-   | Windows (64-bit) | `seedlock-0.1.2-windows-x86_64.exe` |
-   | Mac, with an Apple chip or an Intel chip | `seedlock-0.1.2-macos` |
-   | Linux, on a 64-bit Intel or AMD processor | `seedlock-0.1.2-linux-x86_64` |
+   | Windows (64-bit) | `seedlock-0.2.0-windows-x86_64.exe` |
+   | Mac, with an Apple chip or an Intel chip | `seedlock-0.2.0-macos` |
+   | Linux, on a 64-bit Intel or AMD processor | `seedlock-0.2.0-linux-x86_64` |
 
    For other computers, such as a Raspberry Pi, build SeedLock yourself (Way B), and also if the newest release has
    no programs to download yet. If your browser warns that the program is not commonly downloaded, choose to keep it
@@ -83,9 +83,9 @@ The offline computer needs one program file. There are two ways to get it:
 
    | Program | Command |
    |---|---|
-   | Windows | `(Get-FileHash seedlock-0.1.2-windows-x86_64.exe).Hash` |
-   | Mac | `shasum -a 256 seedlock-0.1.2-macos` |
-   | Linux | `sha256sum seedlock-0.1.2-linux-x86_64` |
+   | Windows | `(Get-FileHash seedlock-0.2.0-windows-x86_64.exe).Hash` |
+   | Mac | `shasum -a 256 seedlock-0.2.0-macos` |
+   | Linux | `sha256sum seedlock-0.2.0-linux-x86_64` |
 
    It shows a long number: the program's fingerprint (its SHA-256 checksum). Open `SHA256SUMS.txt` with a text
    editor: the number next to the program's name must be exactly the same (upper or lower case does not matter). If
@@ -151,7 +151,7 @@ You do this once, on a computer with internet.
 #### Step 2: download the source code
 
 On SeedLock's GitHub page (the page that shows this text), click **Releases** on the right. Under the newest release,
-in its **Assets**, click **Source code (zip)**. Unzip the file: you get a folder with a name like `seedlock-0.1.2`.
+in its **Assets**, click **Source code (zip)**. Unzip the file: you get a folder with a name like `seedlock-0.2.0`.
 
 (If there is no release yet, click the green **Code** button above the list of files, then **Download ZIP**: you get
 the newest files, in a folder with a name like `seedlock-main`.)
@@ -249,7 +249,7 @@ it: a double-clicked program may start in your home folder, and SeedLock would t
 SeedLock starts with its menu:
 
 ```
-=== SeedLock 0.1.2: offline Bitcoin seed tool ===
+=== SeedLock 0.2.0: offline Bitcoin seed tool ===
 Use this on a computer that is NOT connected to the internet.
 
 This computer is offline: no network connection was found.
@@ -288,10 +288,11 @@ Always start SeedLock from its own folder, as above, and the program and your ba
    backup. When SeedLock asks whether the wallet uses a BIP39 passphrase, press Enter (no), unless you set one up
    yourself. SeedLock shows what Sparrow needs for a watch-only wallet (no secret), also as a QR code. In Sparrow,
    choose **File > Import Wallet**, then **Output Descriptor**, click **Scan...** and hold the online computer's
-   camera toward SeedLock's QR code. Without a camera there: in Sparrow, choose **File > New Wallet** and give the
-   wallet a name, click the keystore **Watch Only Wallet**, type the three things SeedLock shows (the master
-   fingerprint, the derivation and the xpub; SeedLock also saves them in a text file next to your backups, to bring
-   over on the USB stick), and click **Apply**. Check that Sparrow shows the same first receive addresses as
+   camera toward SeedLock's QR code; when Sparrow asks for the wallet's name, type the backup's name (the QR code
+   already names Sparrow's keystore after it). Without a camera there: in Sparrow, choose **File > New Wallet** and
+   give the wallet a name, click the keystore **Watch Only Wallet**, type the three things SeedLock shows (the
+   master fingerprint, the derivation and the xpub; SeedLock also saves them in a text file next to your backups, to
+   bring over on the USB stick), and click **Apply**. Check that Sparrow shows the same first receive addresses as
    SeedLock.
 5. **Sign a payment: menu 6.**
    1. In Sparrow: prepare the payment (the **Send** tab, **Create Transaction**, then **Finalize Transaction for
@@ -338,6 +339,8 @@ Everything in detail, including multisig and the camera, is in the [user guide](
   code layout, and the roadmap.
 * [The backup file format](docs/FORMAT.md), and [`tools/recover.py`](tools/recover.py), an independent program that
   opens a backup without SeedLock, so your backups do not depend on this program.
+* [SeedLock for Android](android/README.md), a preview that is not part of a release yet: the same backups and the
+  same signing (multisig too) on a spare phone kept in airplane mode, and how to build it.
 
 ## License
 

@@ -6,7 +6,7 @@ use seedlock_core::bitcoin::psbt::Psbt;
 use seedlock_core::bitcoin::{
     absolute, transaction, Address, Amount, OutPoint, ScriptBuf, Sequence, Transaction, TxIn, TxOut, Txid, Witness,
 };
-use seedlock_core::{mnemonic, multisig::MultisigWallet, psbt as core_psbt, wallet::{ScriptType, Wallet}, Network};
+use seedlock_core::{backup, mnemonic, multisig::MultisigWallet, psbt as core_psbt, wallet::{ScriptType, Wallet}, Network};
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output, Stdio};
@@ -297,6 +297,87 @@ fn qr_is_also_saved_as_a_picture_in_the_backups_folder() {
     assert!(third.status.success());
     assert_eq!(std::fs::read(&picture).unwrap(), b"not the same");
     assert!(dir.join("seedlocker backups").join("my wallet-qr-2.png").is_file());
+}
+
+/// The text of the QR code in a PNG picture that SeedLock saved (its own format: 1 bit per pixel, uncompressed),
+/// read back with rqrr.
+fn png_qr_text(path: &Path) -> String {
+    let png = std::fs::read(path).unwrap_or_else(|e| panic!("{}: {e}", path.display()));
+    assert_eq!(&png[..8], &[0x89, b'P', b'N', b'G', 0x0D, 0x0A, 0x1A, 0x0A]);
+    let (mut pos, mut side, mut idat) = (8, 0usize, Vec::new());
+    while pos < png.len() {
+        let len = u32::from_be_bytes(png[pos..pos + 4].try_into().unwrap()) as usize;
+        let data = &png[pos + 8..pos + 8 + len];
+        match &png[pos + 4..pos + 8] {
+            b"IHDR" => side = u32::from_be_bytes(data[..4].try_into().unwrap()) as usize,
+            b"IDAT" => idat.extend_from_slice(data),
+            _ => {}
+        }
+        pos += 12 + len;
+    }
+    // zlib with stored blocks: a byte that says whether it is the last block, its length, the length inverted, the bytes
+    let (mut raw, mut p) = (Vec::new(), 2);
+    loop {
+        let last = idat[p] == 1;
+        let len = u16::from_le_bytes([idat[p + 1], idat[p + 2]]) as usize;
+        raw.extend_from_slice(&idat[p + 5..p + 5 + len]);
+        p += 5 + len;
+        if last {
+            break;
+        }
+    }
+    let stride = side.div_ceil(8);
+    let dark = |x: usize, y: usize| raw[y * (stride + 1) + 1 + x / 8] & (0x80 >> (x % 8)) == 0;
+    let mut image = rqrr::PreparedImage::prepare_from_greyscale(side, side, |x, y| if dark(x, y) { 0 } else { 255 });
+    let grids = image.detect_grids();
+    assert_eq!(grids.len(), 1, "one QR code in {}", path.display());
+    grids[0].decode().unwrap().1
+}
+
+#[test]
+fn the_backup_qr_code_carries_the_backups_name() {
+    let dir = tmp("qrname");
+    let file = make_backup(&dir, WORDS, "my wallet.seedlock");
+    let contents = std::fs::read_to_string(&file).unwrap();
+    let o = run_in(Some(&dir), &["qr", s(&file)], "");
+    assert!(o.status.success(), "{}", err(&o));
+    assert!(err(&o).contains("holds the ENCRYPTED backup and its name, \"my wallet\""), "{}", err(&o));
+    let read = png_qr_text(&dir.join("seedlocker backups").join("my wallet-qr.png"));
+    assert_eq!(read, backup::qr_text(&contents, "my wallet").unwrap());
+    assert_eq!(read.lines().nth(1), Some("# name: my wallet"), "the name on a line of its own after the backup line");
+    assert_eq!(backup::from_text(&read).unwrap(), backup::from_text(&contents).unwrap(), "and it reads as the same backup");
+    // a pasted backup line carries no name: its code is the line alone, as before
+    let line = contents.lines().find(|l| l.starts_with("SEEDLOCK1:")).unwrap();
+    let o = run_in(Some(&dir), &["qr", line], "");
+    assert!(o.status.success() && err(&o).contains("ENCRYPTED backup only"), "{}", err(&o));
+    assert_eq!(png_qr_text(&dir.join("seedlocker backups").join("seedlock-backup-qr.png")), line);
+}
+
+/// A stand-in routing table of an offline computer, so that the menu does not depend on this one's network.
+fn offline_net(name: &str) -> PathBuf {
+    let net = tmp(name);
+    std::fs::write(net.join("route"), "Iface\tDestination\tGateway \tFlags\tRefCnt\tUse\tMetric\tMask\t\tMTU\tWindow\tIRTT\n").unwrap();
+    std::fs::write(net.join("ipv6_route"), "").unwrap();
+    net
+}
+
+#[test]
+fn menu_5_shows_the_wallet_for_sparrow_as_a_qr_code_that_names_the_keystore() {
+    let dir = tmp("menu5");
+    let backups = dir.join("seedlocker backups");
+    std::fs::create_dir_all(&backups).unwrap();
+    make_backup(&backups, WORDS, "my wallet.seedlock");
+    let net = offline_net("menu5-net");
+    // menu 5, the only backup (Enter), no passphrase, its password, mainnet (no transaction tells), then quit
+    let o = run_env(Some(&dir), &[("SEEDLOCK_TEST_NET_DIR", s(&net))], &[], &format!("5\n\nn\n{PW}\nm\nq\n"));
+    assert!(o.status.success(), "{}", err(&o));
+    let shown = out(&o);
+    assert!(shown.contains("names its keystore \"my wallet\"") && shown.contains("type \"my wallet\" there too"), "{shown}");
+    assert!(shown.contains("wpkh([73c5da0a/84h/0h/0h]xpub6CatWdiZ"), "the descriptor to paste is still there: {shown}");
+    let expected = wallet(WORDS).crypto_output_ur(ScriptType::Wpkh, 0, "my wallet").unwrap();
+    assert_eq!(png_qr_text(&backups.join("my wallet-for-sparrow-qr.png")), expected, "the picture is Sparrow's UR crypto-output");
+    let saved = std::fs::read_to_string(backups.join("my wallet-for-sparrow.txt")).unwrap();
+    assert!(saved.contains(&format!("As a QR code (UR crypto-output):\n  {expected}")), "{saved}");
 }
 
 #[test]
@@ -731,7 +812,7 @@ fn fake_ffmpeg(dir: &Path, texts: &[String]) -> PathBuf {
     let (w, h) = (1280usize, 720usize);
     let mut raw = Vec::new();
     for t in texts {
-        raw.extend(qr_picture(&t.to_uppercase(), w, h));
+        raw.extend(qr_picture(t, w, h));
     }
     let pictures = dir.join("pictures.raw");
     std::fs::write(&pictures, &raw).unwrap();
@@ -757,7 +838,7 @@ fn sign_can_scan_the_transaction_with_the_camera() {
     let dir = tmp("scan");
     let backup = make_backup(&dir, WORDS, "w.seedlock");
     let unsigned = build_psbt(&wallet(WORDS));
-    let frames = core_psbt::ur_frames(&unsigned).unwrap();
+    let frames: Vec<String> = core_psbt::ur_frames(&unsigned).unwrap().iter().map(|f| f.to_uppercase()).collect();
     assert!(frames.len() >= 4, "an animated code, like Sparrow shows");
     let ffmpeg = fake_ffmpeg(&dir, &frames);
 
@@ -776,6 +857,28 @@ fn sign_can_scan_the_transaction_with_the_camera() {
     assert!(!signed.inputs[0].partial_sigs.is_empty());
     // the signed transaction also came out on stdout (there was no terminal)
     assert_eq!(core_psbt::decode(out(&o).trim().as_bytes()).unwrap(), signed);
+}
+
+#[cfg(unix)]
+#[test]
+fn a_scanned_backup_qr_code_gives_its_name_to_the_files_made_from_it() {
+    let dir = tmp("scanname");
+    let elsewhere = tmp("scanname-elsewhere");
+    let file = make_backup(&elsewhere, WORDS, "w.seedlock");
+    // the backup's QR code as SeedLock's phone app (and menu 8 from now on) shows it, of a backup that is not here
+    let code = backup::qr_text(&std::fs::read_to_string(&file).unwrap(), "dave paper").unwrap();
+    let ffmpeg = fake_ffmpeg(&dir, &[code]);
+    let net = offline_net("scanname-net");
+    let envs = [("SEEDLOCK_FFMPEG", s(&ffmpeg)), ("SEEDLOCK_NO_PREVIEW", "1"), ("SEEDLOCK_TEST_NET_DIR", s(&net))];
+    // menu 10, 1 (this seed's key for a multisig wallet): c to scan the backup, no passphrase, its password,
+    // a test network, the usual kind of wallet; then quit
+    let o = run_env(Some(&dir), &envs, &[], &format!("10\n1\nc\nn\n{PW}\nt\n\nq\n"));
+    assert!(o.status.success(), "{}", err(&o));
+    assert!(err(&o).contains("This QR code carries the backup's name, \"dave paper\""), "{}", err(&o));
+    let keys = dir.join("seedlocker backups").join("cosigner keys");
+    let text = std::fs::read_to_string(keys.join("dave paper-cosigner.txt")).unwrap();
+    assert!(text.contains("names the keystore \"dave paper\""), "the keystore in Sparrow is named after it too: {text}");
+    assert!(keys.join("dave paper-cosigner-qr.png").is_file());
 }
 
 #[test]

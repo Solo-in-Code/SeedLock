@@ -4,11 +4,12 @@
 //! This is what SeedSigner's "export xpub" and "address explorer" screens do:
 //! everything that a watch-only wallet (Sparrow, Nunchuk, Specter, ...) needs.
 
+use crate::cbor::{self, Value};
 use crate::{Error, Result};
 use bip39::Mnemonic;
 use bitcoin::bip32::{ChildNumber, DerivationPath, Fingerprint, Xpriv, Xpub};
 use bitcoin::secp256k1::{self, All, Secp256k1};
-use bitcoin::{Address, CompressedPublicKey, Network, ScriptBuf, XOnlyPublicKey};
+use bitcoin::{Address, CompressedPublicKey, Network, NetworkKind, ScriptBuf, XOnlyPublicKey};
 use unicode_normalization::UnicodeNormalization;
 use zeroize::{Zeroize, Zeroizing};
 
@@ -51,6 +52,17 @@ impl ScriptType {
             ScriptType::ShWpkh => "Nested SegWit (BIP49, P2SH-P2WPKH)",
             ScriptType::Wpkh => "Native SegWit (BIP84, P2WPKH)",
             ScriptType::Tr => "Taproot (BIP86, P2TR)",
+        }
+    }
+
+    /// The UR script-expression tags of the script type, outermost first (BCR-2020-010: 400 sh, 403 pkh,
+    /// 404 wpkh, 409 tr).
+    fn ur_tags(self) -> &'static [u64] {
+        match self {
+            ScriptType::Pkh => &[403],
+            ScriptType::ShWpkh => &[400, 404],
+            ScriptType::Wpkh => &[404],
+            ScriptType::Tr => &[409],
         }
     }
 
@@ -185,6 +197,46 @@ impl Wallet {
         let body = script.wrap_descriptor(&key);
         let checksum = descriptor_checksum(&body)?;
         Ok(format!("{body}#{checksum}"))
+    }
+
+    /// The account as a UR `crypto-output` (BCR-2020-010), the QR code that Sparrow's wallet import reads
+    /// (File > Import Wallet > Output Descriptor > Scan...): the script type's tags around a crypto-hdkey
+    /// with the account key, its origin (master fingerprint and path), parent fingerprint and network, and
+    /// `label` as its name, which Sparrow takes as the keystore's label (see
+    /// [`crate::multisig::keystore_label`]). `UR:CRYPTO-OUTPUT/...` in capitals, which QR codes store
+    /// compactly.
+    pub fn crypto_output_ur(&self, script: ScriptType, account: u32, label: &str) -> Result<String> {
+        let path = self.account_path(script, account)?;
+        let xpub = self.account_xpub(script, account)?;
+        let u = Value::Uint;
+        let fingerprint = |f: Fingerprint| u(u64::from(u32::from_be_bytes(f.to_bytes())));
+        let steps: &[ChildNumber] = path.as_ref();
+        let mut components = Vec::with_capacity(steps.len() * 2);
+        for step in steps {
+            let (index, hardened) = match *step {
+                ChildNumber::Hardened { index } => (index, true),
+                ChildNumber::Normal { index } => (index, false),
+            };
+            components.push(u(u64::from(index)));
+            components.push(Value::Bool(hardened));
+        }
+        let origin = Value::Map(vec![(u(1), Value::Array(components)), (u(2), fingerprint(self.fingerprint)), (u(3), u(steps.len() as u64))]);
+        let network = if xpub.network == NetworkKind::Main { 0 } else { 1 };
+        let mut hdkey = vec![
+            (u(3), Value::Bytes(xpub.public_key.serialize().to_vec())),
+            (u(4), Value::Bytes(xpub.chain_code.to_bytes().to_vec())),
+            (u(5), Value::tag(305, Value::Map(vec![(u(1), u(0)), (u(2), u(network))]))),
+            (u(6), Value::tag(304, origin)),
+            (u(8), fingerprint(xpub.parent_fingerprint)),
+        ];
+        if !label.trim().is_empty() {
+            hdkey.push((u(9), Value::Text(label.trim().to_string())));
+        }
+        let mut output = Value::tag(303, Value::Map(hdkey));
+        for tag in script.ur_tags().iter().rev() {
+            output = Value::tag(*tag, output);
+        }
+        Ok(ur::ur::encode(&cbor::encode(&output), &ur::Type::Custom("crypto-output")).to_uppercase())
     }
 
     /// Address `m / purpose' / coin' / account' / chain / index`.
@@ -349,6 +401,43 @@ mod tests {
         let t = wallet(Network::Testnet, "");
         assert!(t.account_xpub(ScriptType::Wpkh, 0).unwrap().to_string().starts_with("tpub"));
         assert_eq!(t.key_origin(ScriptType::Wpkh, 0).unwrap(), "[73c5da0a/84h/1h/0h]");
+    }
+
+    #[test]
+    fn the_wallet_for_sparrow_as_a_ur_crypto_output_named_for_its_keystore() {
+        let w = wallet(Network::Bitcoin, "");
+        let text = w.crypto_output_ur(ScriptType::Wpkh, 0, "My wallet").unwrap();
+        assert!(text.starts_with("UR:CRYPTO-OUTPUT/") && text.matches('/').count() == 1, "one single-part code: {text}");
+        let (_, bytes) = ur::ur::decode(&text.to_lowercase()).unwrap();
+        let Value::Tag(404, inner) = cbor::decode(&bytes).unwrap() else { panic!("wpkh() first") };
+        let Value::Tag(303, hdkey) = *inner else { panic!("then the key") };
+        assert_eq!(hdkey.get(9), Some(&Value::Text("My wallet".into())), "the keystore's label in Sparrow");
+        let Some(Value::Tag(304, origin)) = hdkey.get(6) else { panic!("the key's origin") };
+        let path: Vec<Value> = [84, 0, 0].iter().flat_map(|&i| [Value::Uint(i), Value::Bool(true)]).collect();
+        assert_eq!(origin.get(1), Some(&Value::Array(path)));
+        assert_eq!(origin.get(2).and_then(Value::as_uint), Some(0x73c5_da0a), "the master fingerprint");
+        // the fields rebuild BIP84's account xpub
+        let xpub = w.account_xpub(ScriptType::Wpkh, 0).unwrap();
+        assert_eq!(hdkey.get(3).and_then(Value::as_bytes), Some(&xpub.public_key.serialize()[..]));
+        assert_eq!(hdkey.get(4).and_then(Value::as_bytes), Some(&xpub.chain_code.to_bytes()[..]));
+        assert_eq!(hdkey.get(8).and_then(Value::as_uint), Some(u64::from(u32::from_be_bytes(xpub.parent_fingerprint.to_bytes()))));
+        // each script type has its tags, and a test network says so
+        let t = wallet(Network::Testnet, "");
+        for (script, tags) in [(ScriptType::ShWpkh, vec![400, 404]), (ScriptType::Pkh, vec![403]), (ScriptType::Tr, vec![409])] {
+            let (_, bytes) = ur::ur::decode(&t.crypto_output_ur(script, 0, "x").unwrap().to_lowercase()).unwrap();
+            let mut value = cbor::decode(&bytes).unwrap();
+            let mut found = Vec::new();
+            while let Value::Tag(tag, inner) = value {
+                if tag == 303 {
+                    let Some(Value::Tag(305, use_info)) = inner.get(5) else { panic!("the network") };
+                    assert_eq!(use_info.get(2).and_then(Value::as_uint), Some(1), "a test network");
+                    break;
+                }
+                found.push(tag);
+                value = *inner;
+            }
+            assert_eq!(found, tags, "{script:?}");
+        }
     }
 
     #[test]

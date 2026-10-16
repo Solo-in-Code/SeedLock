@@ -479,7 +479,8 @@ def camera_showing(texts, tag):
     """A wrapper that makes the real ffmpeg play a video of these QR codes as if it were the camera."""
     shots = tempfile.mkdtemp(prefix=tag)
     for i, text in enumerate(texts):
-        q = segno.make(text, error="m", micro=False, boost_error=False)
+        # UTF-8 without an ECI marker, as SeedLock writes its own codes (a backup's name may hold any letters)
+        q = segno.make(text, error="m", micro=False, boost_error=False, encoding="utf-8")
         m = np.pad(np.array([[0 if b else 255 for b in row] for row in q.matrix], np.uint8), 4, constant_values=255)
         frame = np.full((720, 1280), 200, np.uint8)
         frame[140:580, 420:860] = cv2.resize(m, (440, 440), interpolation=cv2.INTER_NEAREST)
@@ -537,20 +538,21 @@ def finish_share(s, before):
 
 
 ANSI_RE = re.compile(r"\x1b\[[0-9;?]*[A-Za-z]")
-# H1) alice's backup, whose file is in the backups folder
-s, before = share_scanned(camera_showing([backup_code(os.path.join(BACKUPS, "alice.seedlock"))], "h1-"),
+# H1) alice's backup, whose file is in the backups folder: its name there wins over the one its QR code carries
+#     (the codes of SeedLock 0.2.0 and newer, and the phone app's, carry the backup's name on a line of its own)
+s, before = share_scanned(camera_showing([backup_code(os.path.join(BACKUPS, "alice.seedlock")) + "\n# name: alice on the phone"], "h1-"),
                           lambda s: s.text('(This QR code is the backup "alice" in your backups folder, so its name is used.)'))
 shown, files, label = finish_share(s, before)
 assert 'names the keystore "alice"' in shown and label == "alice", (label, shown[-600:])
 assert all(f.startswith("alice-cosigner") for f in files), files
-# H2) a backup kept somewhere else: SeedLock asks for its name
+# H2) a backup kept somewhere else, whose code carries no name (made before 0.2.0): SeedLock asks for its name
 outside = os.path.join(tempfile.mkdtemp(), "paper.seedlock")
 o = run(["encrypt", "--out", outside, "--kdf", "light"], f"zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo wrong\n{PW}\n")
 assert o.returncode == 0, o.stderr
 
 
 def ask_the_name(s):
-    s.text("A QR code does not hold the backup's name, and this backup is not in your backups folder.")
+    s.text("This QR code does not carry the backup's name, and this backup is not in your backups folder.")
     s.text("What is this seed called? (It names the saved files and the keystore in Sparrow.) [seedlock-backup]: ")
     s.send("dave paper")
 
@@ -561,8 +563,21 @@ s.text("Choose 1, 2 or 3 [1]: "); s.send("")
 shown, files, label = finish_share(s, before)
 assert 'names the keystore "dave paper"' in shown and label == "dave paper", (label, shown[-600:])
 assert sorted(files) == ["dave paper-cosigner-qr.png", "dave paper-cosigner.txt"], files
-print("H) menu 10, 1 with the backup read from its QR code (the real ffmpeg): matched to its file, the keystore is named "
-      "\"alice\"; a backup kept elsewhere makes SeedLock ask, and \"dave paper\" names the keystore and the saved files: OK")
+# H3) the same backup kept elsewhere, now from a code that carries its name (accents and all): no question; the name
+#     names the saved files, and the keystore gets its first 16 characters, the most Sparrow allows
+carried = "Poupança da família"
+s, before = share_scanned(camera_showing([backup_code(outside) + f"\n# name: {carried}"], "h3-"),
+                          lambda s: s.text(f'(This QR code carries the backup\'s name, "{carried}", so that name is used.)'))
+s.text("Type m or t [m]: "); s.send("t")
+s.text("Choose 1, 2 or 3 [1]: "); s.send("")
+shown, files, label = finish_share(s, before)
+assert "What is this seed called?" not in s.log.getvalue(), "no question when the code carries the name"
+assert label == "Poupança da famí" and f'names the keystore "{label}" (Sparrow allows 16 characters)' in shown, (label, shown[-600:])
+assert sorted(files) == [f"{carried}-cosigner-qr.png", f"{carried}-cosigner.txt"], files
+print("H) menu 10, 1 with the backup read from its QR code (the real ffmpeg): matched to its file, whose name \"alice\" wins "
+      "over the one the code carries; a backup kept elsewhere whose code carries no name makes SeedLock ask, and \"dave "
+      "paper\" names the keystore and the saved files; one whose code carries \"Poupança da família\" needs no question, "
+      "names the files with it and the keystore with its first 16 characters: OK")
 
 # ---------------------------------------------------------------- I) BBQr codes, made by Coinkite's reference code
 if not opts.bbqr_lib:

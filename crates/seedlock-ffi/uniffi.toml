@@ -1,0 +1,8 @@
+# How uniffi-bindgen writes the Kotlin code that calls this crate (see android/README.md).
+[bindings.kotlin]
+package_name = "org.seedlock.ffi"
+# the app loads libseedlock_ffi.so
+cdylib_name = "seedlock_ffi"
+kotlin_target_version = "2.0.21"
+
+generate_immutable_records = true

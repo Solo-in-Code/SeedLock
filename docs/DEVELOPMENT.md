@@ -4,18 +4,19 @@ This page is for people who want to build SeedLock in other ways, change its cod
 build SeedLock and use it, the [README](../README.md) and the [user guide](GUIDE.md) are all you need.
 
 SeedLock is written in Rust: memory-safe, with secrets wiped from memory, and built into one small program file. Its
-core library, `seedlock-core`, does no input or output of its own (no files, no terminal, no camera), so that it can
-later be built into Android and iOS apps unchanged.
+core library, `seedlock-core`, does no input or output of its own (no files, no terminal, no camera), so that it goes
+into phone apps unchanged: the Android app, a preview for now, is built on it (see [The phone app](#the-phone-app-preview)).
 
 ## Contents
 
 1. [Building](#building)
-2. [Making a release](#making-a-release)
-3. [Supply chain and the offline audit](#supply-chain-and-the-offline-audit)
-4. [How SeedLock was verified](#how-seedlock-was-verified)
-5. [Technical notes](#technical-notes)
-6. [Code layout](#code-layout)
-7. [Limitations and roadmap](#limitations-and-roadmap)
+2. [The phone app (preview)](#the-phone-app-preview)
+3. [Making a release](#making-a-release)
+4. [Supply chain and the offline audit](#supply-chain-and-the-offline-audit)
+5. [How SeedLock was verified](#how-seedlock-was-verified)
+6. [Technical notes](#technical-notes)
+7. [Code layout](#code-layout)
+8. [Limitations and roadmap](#limitations-and-roadmap)
 
 ## Building
 
@@ -101,7 +102,7 @@ offline computer with the file you built yourself, by its SHA-256 checksum.
 ### The version number
 
 The program takes its version from one place, `version` under `[workspace.package]` in the top `Cargo.toml`. The
-menu's title shows it (`=== SeedLock 0.1.2: offline Bitcoin seed tool ===`), and `seedlock --version` prints it.
+menu's title shows it (`=== SeedLock 0.2.0: offline Bitcoin seed tool ===`), and `seedlock --version` prints it.
 `Cargo.lock` records it too: after changing it, run `cargo build --offline` once without `--locked`, so that
 `Cargo.lock` follows. The README and the guides show it as well; see [Making a release](#making-a-release).
 
@@ -111,12 +112,80 @@ The Windows console code (the live dice counter, colours and cursor moves in the
 Windows. On Linux it is type-checked with `RUSTFLAGS="--cfg seedlock_check_windows" cargo check`, since it cannot
 run there.
 
+## The phone app (preview)
+
+The Android app is in the folder `android`, and [`android/README.md`](../android/README.md) says how to build it, put
+it on a phone and try it. It is a preview, not part of a release yet; its tests on a real phone went well (see
+[Confirmed on real computers](#confirmed-on-real-computers)). It does what the computer does: it opens and makes
+backups (the same files), lays the wallet out for Sparrow, and reads a transaction from Sparrow's animated QR code with
+the camera, shows every address and amount, signs, and shows the signed transaction as an animated QR code. For
+multisig it does what menu 10 does: it lays a seed's key out for a multisig wallet in Sparrow, keeps the multisig
+wallets read from Sparrow's QR code or exported file (as the same `.multisig` files), and signs their payments as one
+of their cosigners.
+
+How it is made:
+
+* **`crates/seedlock-ffi`** is the part of SeedLock that the app calls: seeds, backups, the wallet, multisig wallets,
+  the review and the signing, QR codes to show, and a scanner that collects QR codes from camera pictures. It is a thin layer over
+  `seedlock-core`, with the command-line program's checks and wording. [UniFFI](https://github.com/mozilla/uniffi-rs)
+  makes it callable from Kotlin: `crates/uniffi-bindgen` writes the Kotlin code from the library itself (it can write
+  Swift too, for an iPhone app later). Seeds stay inside Rust, in memory that is wiped; passwords cross as bytes that
+  both sides wipe. Its code is safe Rust only (`#![forbid(unsafe_code)]`). What the phone and the computer both do is
+  in `seedlock-core`, for example a backup's QR code that carries the backup's name (`backup::qr_text`,
+  [`FORMAT.md`](FORMAT.md), section 6) and the wallet's QR code for Sparrow, a UR `crypto-output` whose key is named
+  after the backup, which Sparrow takes as the keystore's label (`Wallet::crypto_output_ur`).
+* **`crates/seedlock-qr`** reads QR codes in camera pictures and makes QR codes to show; the command-line program reads
+  QR codes with it too (its `scan.rs` brings the pictures from the camera). Both find a transaction's network the same
+  way, by its key paths (`psbt::network_hint` in `seedlock-core`).
+* **The app** (`android/app/src/main/java/org/seedlock/app`): plain Android classes in Kotlin, without AndroidX or
+  any other library except JNA, which the Kotlin code from UniFFI uses to call the Rust library (JNA 5.18.1, which
+  also runs on phones with 16 KB memory pages). The camera is read with Camera2 (the grey part of each picture goes to
+  the scanner), files are opened and saved with Android's file picker, and backups and multisig wallets are kept in
+  the app's own storage.
+
+A plain `cargo build` still builds only the command-line program (`default-members` in `Cargo.toml`); the phone crates
+are built with `-p`. `android/build-rust.sh` (on Windows `build-rust.ps1`) builds `libseedlock_ffi.so` with cargo-ndk
+for 64-bit and 32-bit ARM phones and the x86-64 emulator, and writes the Kotlin code; Android Studio then builds the
+app, and only the app (`org.seedlock.app`): the app module has no instrumented tests, so `app/build.gradle.kts`
+switches off the separate test app that Android Studio would build next to it (`org.seedlock.app.test`, which has no
+icon and opens nothing). The library is built with the `phone` profile (in `Cargo.toml`): the release settings, but
+with `panic = "unwind"`, because inside an app a panic (a bug) should become an error the app shows, which UniFFI
+does, rather than close the app at once. Like the release scripts, the script keeps your user name out of the library
+and checks that it did.
+
+What keeps the phone offline and the secrets in it: the app has no INTERNET permission, so Android refuses it every
+network connection (the manifest even takes the permission out should a library ask for it); it warns when the phone
+is not in airplane mode; its screens and its dialogs cannot be captured or recorded (`FLAG_SECURE` on each window); a
+seed's words cannot be selected or copied, and a new password reaches the clipboard only when **Copy it** is tapped
+(for a password manager on the same phone), marked as sensitive, and SeedLock empties the clipboard when it is back
+in front if its copy is still there; its text fields allow no keyboard learning or autofill; its files are left out of
+Android's cloud backup and of the copy to a new phone; and leaving the app closes every screen but the first and every
+dialog, and with them any open seed (work that ends meanwhile, such as opening a backup, shows nothing). The one
+exception: for 5 minutes after **Copy it**, the new seed's screen stays open while the password is pasted into the
+password manager. `tools/audit-offline.sh` checks the library, the permissions, the
+app's libraries and its Kotlin code (see [the audit](#supply-chain-and-the-offline-audit)).
+
+Two more things to know about the app:
+
+* **Answers from Android's file picker wait for the screen.** Up to Android 12, Android hands an app the answer of
+  the file picker (and of the camera question) before the app is on the screen again (`onActivityResult` before
+  `onStart`: Android 10's `ActivityResultItem` has no lifecycle state of its own; from Android 13 on, for apps that
+  target it, the answer comes after `onStart`). The app would then still count itself as left and show nothing, so
+  `MainActivity` keeps such an answer until `onStart`. Without this, opening a file did nothing on Android 10 (found
+  on the Xiaomi Mi 8, and confirmed fixed there; the emulators with a recent Android do not show it).
+* **The fingerprints beside the backups' names.** Once a backup was opened on the phone (or made there), the app
+  keeps its wallet's fingerprint without a BIP39 passphrase next to it (`<name>.fingerprint`, in the app's own
+  storage; it is not part of the backup's file and goes nowhere with its copies). It shows it beside the backup's
+  name, names the backups that are a multisig wallet's cosigners, and says before the password is asked for when a
+  transaction is for other wallets than the chosen backup's. Nothing about a passphrase is kept: with one, a seed is
+  another wallet, and whether it exists stays the person's secret.
+
 ## Making a release
 
 A release is a version of SeedLock that people download exactly as it was tested, from the repository's
 **Releases** page: the ready-made programs (README, Part 1, Way A) and the source code (Way B).
 
-1. **The version.** Set the new one in `Cargo.toml` (`version` under `[workspace.package]`, for example `0.1.3`) and
+1. **The version.** Set the new one in `Cargo.toml` (`version` under `[workspace.package]`, for example `0.2.1`) and
    run `cargo build --offline` once without `--locked`, so that `Cargo.lock` follows. Then replace the old number
    with the new one in `README.md`, `docs/GUIDE.md` and this page (search and replace): the status note, the program
    and folder names in Part 1, and the menu. `cargo test` fails if one was forgotten (the test
@@ -124,13 +193,19 @@ A release is a version of SeedLock that people download exactly as it was tested
 2. **Check everything:** `cargo test --workspace --locked`, the three test scripts, `sh tools/audit-offline.sh` (see
    [Re-running the tests](#re-running-the-tests)), and a build with Rust 1.85, the oldest version SeedLock supports.
 3. **Put the files on GitHub,** on the `main` branch. In the web interface: open the folder a changed file belongs
-   in, click **Add file > Upload files**, and drag the file in (a file with the same name is replaced). Upload the
-   files themselves, never a zip file: GitHub does not unpack it. Most file managers hide files and folders whose
-   names start with a dot, such as `.cargo/config.toml`: create those with **Add file > Create new file** instead,
-   typing the whole path as the name (`.cargo/config.toml`) and pasting the content (copy it from the file itself,
-   opened in a text editor, so that no spaces get in front of the lines). Then check that every file is in its
-   folder: a file uploaded on the repository's main page lands at the top. To remove a file from GitHub, open it,
-   click **...** at the top right, then **Delete file** and **Commit changes**.
+   in, click **Add file > Upload files**, and drag the file in (a file with the same name is replaced). Many files at
+   once: on the repository's main page, drag whole folders (such as `crates` and `docs`) and files together onto the
+   upload page; GitHub keeps their folders, replaces the files with the same path and leaves unchanged ones as they
+   are (at most 100 files per upload). Take them from a freshly unpacked copy, never from a folder that Cargo or
+   Android Studio built in, whose build files (`target`, `android/app/build`, `local.properties` and so on) must not
+   go up. Upload the files themselves, never a zip file: GitHub does not unpack it. Most file managers hide files and
+   folders whose names start with a dot, such as `.cargo/config.toml`: create those with **Add file > Create new
+   file** instead, typing the whole path as the name (`.cargo/config.toml`) and pasting the content (copy it from the
+   file itself, opened in a text editor, so that no spaces get in front of the lines); to change one that is already
+   there, such as `.gitignore`, open it on GitHub, click the pencil (**Edit this file**), replace its content the
+   same way and click **Commit changes**. Then check that every file is in its folder: a file uploaded on the
+   repository's main page lands at the top. To remove a file from GitHub, open it, click **...** at the top right,
+   then **Delete file** and **Commit changes**.
 4. **Build the programs** from exactly those files: on each computer, download them from GitHub (**Code > Download
    ZIP**), then, in that folder:
 
@@ -169,7 +244,7 @@ A release is a version of SeedLock that people download exactly as it was tested
 
 7. **Create the release.** On the repository's main page, click **Releases** on the right, then **Draft a new
    release** (before the first release, the link is called **Create a new release**). Open **Choose a tag**, type
-   the version with a `v` in front (for example `v0.1.3`) and click **Create new tag**; **Target**: `main`.
+   the version with a `v` in front (for example `v0.2.1`) and click **Create new tag**; **Target**: `main`.
    **Release title**: `SeedLock` and the version. In **Describe this release**, say what changed, and that SeedLock
    is not independently audited. Drag the three programs, `SHA256SUMS.txt` and `SHA256SUMS.txt.asc` into the box for
    binaries below it, and wait until all of them are listed. Leave **This is a pre-release** off and **Set as latest
@@ -247,7 +322,7 @@ If the key ever has to be replaced, make a new one the same way:
 
 ## Supply chain and the offline audit
 
-`Cargo.lock` is included and pins every library: 81 crates in the program's dependency tree, none of which can use
+`Cargo.lock` is included and pins every library: 82 crates in the program's dependency tree, none of which can use
 the network. Build with `--locked`, review `Cargo.lock`, and, if you like, vendor the sources (above) and read what
 you build. There is no telemetry and no network code: the online check only reads the computer's own routing table.
 
@@ -261,7 +336,11 @@ you build. There is no telemetry and no network code: the online check only read
    (to see whether it is a virtual machine: they read its firmware description), and, only with `--qr-browser`, the
    system's "open" command (`xdg-open`, `open` or `explorer`); never from the core library;
 4. `unsafe` code only in `ui.rs` and `main.rs`, and never in the core library, which forbids it;
-5. the licenses (below).
+5. the licenses (below);
+6. the phone app: checks 2 to 4 cover its Rust code too; its library has no networking crate either, on every system
+   (Android's included, whatever computer runs the audit), and its licenses are checked like the program's; its
+   manifest asks Android only for the camera and the network state (to warn when the phone is online) and takes
+   INTERNET out; JNA is its only other library; and its Kotlin code uses no network API.
 
 It prints every `unsafe` line and every place a program is started, so they can be read in one go. Run it after every
 dependency update. It needs Cargo; if Cargo cannot run, it says FAIL, never OK.
@@ -270,28 +349,45 @@ dependency update. It needs Cargo; if Cargo cannot run, it says FAIL, never OK.
 `ui.rs` (the window size; reading single key presses for the dice counter; putting the terminal back after Ctrl+C at
 a hidden prompt; and on Windows the console calls that do the same there and let the console window understand
 colours and cursor moves) and in `main.rs` (switching off core dumps on Linux and macOS, so that a crash cannot write
-secrets to disk).
+secrets to disk). The phone app's crates forbid `unsafe` code; the glue that UniFFI's macros write for the calls from
+Kotlin is UniFFI's own.
 
 ### Licenses of the libraries
 
 SeedLock itself is under the MIT license (`license = "MIT"` in `Cargo.toml`, and the `LICENSE` file). The logo is
 not: see [`logo/README.md`](logo/README.md).
 
-The 87 libraries SeedLock can be built from (on every system, build helpers included) keep their own licenses, all
+The 88 libraries SeedLock can be built from (on every system, build helpers included) keep their own licenses, all
 of them permissive: most are MIT or Apache-2.0, the rust-bitcoin libraries are public domain (CC0), and a few are BSD,
 ISC, Zlib, Unicode or BlueOak. None is copyleft (GPL and the like, which would require SeedLock to use that license
 too); `sh tools/audit-offline.sh` checks this on every run. Libraries used only by the tests never reach the program.
 If you publish built programs and not only the source, include those libraries' license notices with them
 ([`cargo about`](https://github.com/EmbarkStudios/cargo-about) can collect them).
 
+The phone app brings a few more:
+
+* **UniFFI** (its six crates `uniffi`, `uniffi_core`, `uniffi_macros` and so on) is under the Mozilla Public License
+  2.0 (MPL-2.0), a weak copyleft that applies file by file: it covers UniFFI's own files, not SeedLock's, which stay
+  MIT. When the app is published as a ready-made APK, its notices must say where UniFFI's source code can be had
+  (unchanged, on crates.io and GitHub); the Kotlin code that `uniffi-bindgen` writes comes from UniFFI's templates, so
+  treat it the same way. The audit allows MPL-2.0 for UniFFI's own crates and for nothing else.
+* **JNA**, which the app uses to call the Rust library, may be used under Apache-2.0 or LGPL-2.1, as one prefers:
+  SeedLock takes Apache-2.0. The Kotlin standard library inside the app is Apache-2.0.
+* A library that lets you choose between a permissive and a copyleft license is taken under the permissive one; the
+  audit accepts it for that reason. So far there is one, `r-efi` (MIT, Apache-2.0 or LGPL), which is only used when
+  building for UEFI firmware and never reaches a phone or a computer program.
+
 ## How SeedLock was verified
 
 ### Automated tests
 
-**129 automated tests** (`cargo test --workspace --locked`):
+**156 automated tests** (`cargo test --workspace --locked`):
 
-* **68 for the core library:** backup tamper detection on every bit; BIP39/32/44/49/84/86 test vectors; BIP380
-  descriptor checksums; PSBT signing with signature verification for SegWit v0 and Taproot; the swapped-change attack;
+* **71 for the core library:** backup tamper detection on every bit; a backup's QR code with its name line, still
+  read as the backup exactly the way earlier versions read it; BIP39/32/44/49/84/86 test vectors; BIP380 descriptor
+  checksums; the wallet for Sparrow as a UR crypto-output named for its keystore, its fields rebuilding BIP84's xpub,
+  with each address type's tags and a test network's mark; PSBT signing with signature verification for SegWit v0
+  and Taproot; the swapped-change attack;
   refusal cases; animated-QR round trips, and the scanner that collects QR pieces in any order, with repeats, and
   starts over when another transaction appears. Multisig: Sparrow's descriptor forms read and wrong ones refused;
   sorted 2-of-3 scripts; signing one cosigner at a time with the signature checked; refusal when unregistered or when
@@ -301,26 +397,54 @@ If you publish built programs and not only the source, include those libraries' 
   labels), and private or master keys refused; a cosigner key written as a crypto-account; the descriptor scanner
   taking animated parts in any order; and a small strict CBOR reader. BBQr: codes made by Coinkite's reference code
   read in all three encodings, in any order and with repeats; a code that would unpack to more than 16 MB refused; a
-  BBQr transaction and a BBQr descriptor taken by the scanners, and a finished transaction passed over.
-* **35 unit tests of the command-line program:** a PNG encoder read back by a decoder written for the test; the web
-  page; reading QR codes in soft and noisy pictures and saying where they are; dense codes photographed on a screen
-  (pixel pattern, glare, soft focus) that only the light-evening tries read; a code in view that cannot be read,
-  noticed as such; the outline and progress bar drawn on the preview; a whole transaction rebuilt from pictures; the
-  pipes to stand-in ffmpeg and ffplay programs; a preview that fails or is missing; both terminal QR styles, with the
-  full one read back square by square and decoded; which terminal gets which style; the QR window fed through a pipe
-  to a stand-in ffplay (every code in turn, each for its whole interval, and a readable QR code) and a window that
-  cannot be opened; a backup read from its QR code among other codes, while a damaged one is never taken; dropped file
-  paths in each terminal's format; the network found from the key paths; the online check reading Linux routing
-  tables, macOS `route` output and Windows `route print` output in English and Spanish; a virtual machine recognised
-  from its firmware description (and real computers not); Windows registry values; a scanned backup matched to its
-  file; and which files of an earlier version go into the cosigner keys folder.
-* **26 end-to-end tests of the real program:** among them `sign --scan` through a stand-in ffmpeg; signing without
+  BBQr transaction and a BBQr descriptor taken by the scanners, and a finished transaction passed over. The network
+  found from a transaction's key paths (for both programs).
+* **31 unit tests of the command-line program:** a PNG encoder read back by a decoder written for the test; the web
+  page; the outline and progress bar drawn on the preview; a whole transaction rebuilt from pictures; the pipes to
+  stand-in ffmpeg and ffplay programs; a preview that fails or is missing; both terminal QR styles, with the full one
+  read back square by square and decoded; which terminal gets which style; the QR window fed through a pipe to a
+  stand-in ffplay (every code in turn, each for its whole interval, and a readable QR code) and a window that cannot
+  be opened; a backup read from its QR code among other codes, while a damaged one is never taken; dropped file paths
+  in each terminal's format; the network chosen from what the key paths say, `--network` winning, and a clear error
+  instead of a guess when they say nothing or contradict each other; the online check reading Linux routing tables,
+  macOS `route` output and Windows `route print` output in English and Spanish; a virtual machine recognised from its
+  firmware description (and real computers not); Windows registry values; a scanned backup matched to its file; and
+  which files of an earlier version go into the cosigner keys folder.
+* **29 end-to-end tests of the real program:** among them `sign --scan` through a stand-in ffmpeg; signing without
   `--network` (a test-network transaction is recognised and shown with testnet addresses, a mainnet one is called real
   bitcoin, `--network` still wins, and a transaction with no key paths gets a clear error instead of a guess); a
   registered 2-of-3 wallet signed by two cosigners in turn, refused when unregistered, with the files an earlier
-  version kept next to the backups moved into their folders first; the version in the menu's title, above the
-  menu, and from `--version`; the same version everywhere the README and the guides give it; and the same release key
-  fingerprint everywhere they give it, which is also the fingerprint of the key in `docs/release-key.asc`.
+  version kept next to the backups moved into their folders first; the backup's QR picture (menu 8) read back as the
+  backup line with the backup's name on a line of its own, and as the same backup, while a pasted backup line, which
+  has no name, still gives the line alone; menu 5's QR picture read back as exactly the UR crypto-output that names
+  the keystore after the backup, also written in the saved text file, with the descriptor to paste still shown; a
+  backup scanned from a named QR code, through a stand-in ffmpeg, giving its name to the files made from it and to
+  the keystore; the version in the menu's title, above the menu, and from `--version`; the same version everywhere
+  the README and the guides give it; and the same release key fingerprint everywhere they give it, which is also the
+  fingerprint of the key in `docs/release-key.asc`.
+* **6 for the QR crate** (`seedlock-qr`, which both programs read QR codes with): soft and noisy camera pictures; dense
+  codes photographed on a screen (its pixel pattern, glare, soft focus) that only the light-evening tries read; a code
+  in view that cannot be read, and a dense one too damaged to read, both noticed as such; where a code is, also in a
+  soft picture; a picture whose size does not fit its bytes; and made codes read back, all of an animation the same
+  size.
+* **19 for the phone app's library** (`seedlock-ffi`): a backup opens with its password only; new seeds and their
+  backups, reopened; dice rolls in dice-only mode give the seed that SeedSigner makes from them (worked out separately
+  in Python); typed words checked and compared; backup names follow the program's rules; a backup's QR code carries
+  its name and still reads as the backup, the way earlier readers read it; the wallet for Sparrow equals BIP84's test
+  vector (xpub and first address); its QR code for Sparrow, a UR `crypto-output` named after the backup, for every
+  address type on mainnet and a test network, its fields rebuilding the test vector's xpub; a payment reviewed and
+  signed, its signed copy shown as an animated QR code and collected back by the scanner from camera-like pictures,
+  byte for byte; an animated code collected from the middle of its loop, with the corners for the outline; a
+  backup's code read while other codes are passed over and a damaged one is never taken, and one with its name read
+  with the name; a picture of the wrong size refused. Multisig: a wallet read from Sparrow's exported file and kept as
+  the command-line program's `.multisig` file, byte for byte, and read back; wrong ones refused, saying why; a seed's
+  key for a multisig wallet laid out for Sparrow (its UR `crypto-account` and its fields) for each kind and network,
+  and taken from a wallet it is a cosigner of, but not from one that only names its fingerprint; a 2-of-3 payment
+  reviewed and signed by two cosigners in turn, with the program's texts, and refused, with the phone's wording, while
+  the wallet is not on the phone, and, after each signature, how many it has and how many more it needs; the
+  fingerprints of the wallets a transaction is for; a legacy wallet's payment, whose network comes from the wallet;
+  and Sparrow's animated `crypto-output` code, the descriptor as text and a Taproot wallet's code, read through the
+  camera scanner.
 
 ### Independent implementations agree
 
@@ -347,21 +471,22 @@ Foundation Devices' reference UR library into exactly the signed PSBT, using the
 wrapped in synchronized output); and Apple's Terminal (with `TERM_PROGRAM` set the way that app sets it): the boxed
 note, then every frame of the animated code, the static code and a backup's code in the full style, read back from the
 raw output (no block characters; every square two spaces of one colour), decoded, and reassembled into exactly the
-signed PSBT or the backup text; with it unset, the compact style and no note.
+signed PSBT or the backup text and its name line; with it unset, the compact style and no note.
 
 ### The QR and camera flows
 
 `tools/qr_flow_test.py` tests them end to end with independent tools:
 
-* menu 8's PNG is read back by OpenCV and equals the backup text;
+* menu 8's PNG is read back by OpenCV and equals the backup text followed by its name line;
 * menu 6's explanations, file list, wrong-path handling and the network found by itself are driven in a
   pseudo-terminal;
-* a backup is read from its QR code through the **real ffmpeg** (a soft, noisy, compressed video that shows a
-  transaction's code first, which is passed over): it opens (menu 4) and signs (menu 6, the signature verified by
-  `embit`); menu 8's copy goes to a dropped folder;
+* a backup is read from its QR code, with its name line, through the **real ffmpeg** (a soft, noisy, compressed video
+  that shows a transaction's code first, which is passed over): it opens (menu 4) and signs (menu 6, the signature
+  verified by `embit`); menu 8's copy goes to a dropped folder;
 * menu 5's fingerprint, `m/84'/...` derivation, xpubs of all four address types and first address equal `embit`'s,
   on mainnet (found from the wallet's own transaction) and on a test network (after the one question); its descriptor
-  checksum agrees with BIP380's reference code, and the saved QR picture reads back as the descriptor;
+  checksum agrees with BIP380's reference code; the saved QR picture, a UR crypto-output, is read by `urtypes` (the
+  library SeedSigner uses) as `embit`'s own account key with its origin, its keystore named after the backup;
 * the optional browser page is checked by rasterising every QR picture on it and rebuilding the signed PSBT with the
   Foundation UR library, by running its script in a real DOM (jsdom; a negative control proves that the check catches
   the bug an earlier version had, where a script cannot change the class of an SVG element) and by simulating its
@@ -373,8 +498,8 @@ signed PSBT or the backup text; with it unset, the compact style and no note.
   and the window closes when the scan is done;
 * the QR window is also the **real ffplay** on a virtual X screen: a film of the screen is decoded picture by picture,
   the parts come in order and are reassembled by the Foundation UR library into exactly the signed PSBT, a backup's
-  code reads back as exactly the backup text, typing `t` switches to the terminal, Enter closes the window, and
-  without a screen or without ffplay SeedLock says why and draws the code in the terminal.
+  code reads back as exactly the backup text and its name line, typing `t` switches to the terminal, Enter closes the
+  window, and without a screen or without ffplay SeedLock says why and draws the code in the terminal.
 
 The QR reader was chosen by measurement on simulated webcam pictures (108 pictures with blur, noise, tilt and small
 size): trying each picture as it is reads 50% of them; trying it also enlarged, sharpened and reduced reads 75%
@@ -400,13 +525,43 @@ shows keys, registers and signs.
   registered from a file. For both, two cosigners sign and embit verifies the signatures over its own signature
   hashes.
 * Menu 10, 1 with the backup read from its QR code (through the real ffmpeg) names the keystore after the backup's
-  file, found in the backups folder; for a backup kept elsewhere it asks for the name.
+  file, found in the backups folder, even when the code carries another name; for a backup kept elsewhere it takes
+  the name the code carries (here with accents: the files get the whole name, the keystore its first 16
+  characters), and only for a code without a name (made before 0.2.0) it asks.
 * Codes in Coinkite's BBQr format, made by Coinkite's own reference code: a wallet registered from its descriptor as a
   compressed BBQr series, and its transaction scanned as a compressed BBQr series and signed; embit verifies.
 * A whole wallet in one static QR code, as Sparrow shows it at medium density (UR and BBQr), drawn the way Sparrow
   draws it and photographed on a screen: registered through the real ffmpeg (the BBQr photo is one the reader could
   not read before its light-evening tries). While a damaged copy is in view, SeedLock says it sees a code it cannot
   read, and what helps.
+
+### The phone app, checked on a computer
+
+Besides what was tried on a real phone (see [Confirmed on real computers](#confirmed-on-real-computers)), this was
+checked on a computer:
+
+* `android/jvm-check/run.sh` calls the library the way the app does, through the Kotlin code that `uniffi-bindgen`
+  writes and JNA, but in Java's virtual machine on a computer: the BIP39 test seed and its wallet for Sparrow; a wrong
+  word and a wrong password refused, each with the right kind of error; a backup made and reopened; its QR code with
+  its name, read by the scanner; a transaction made by `embit` (an independent Python library) read from its file,
+  reviewed and signed; the signed transaction's animated QR code read back through the scanner; `embit` verifies the
+  signature over its own signature hash (and, as a control, no longer once an amount is changed); and `urtypes` (the
+  library SeedSigner uses) reads the wallet's QR code for Sparrow as `embit`'s own account key, with its name.
+  Multisig: a 2-of-3 wallet that `embit` describes the way Sparrow exports it, read and kept as a `.multisig` file,
+  its first receive address equal to `embit`'s, its descriptor's QR code read by the scanner; a cosigner's key, whose
+  QR code is byte for byte the `crypto-account` that `urtypes` writes for that key; the wallet's payment, which names
+  its three cosigners' fingerprints, refused while the wallet is not on the phone, then reviewed and signed by two of
+  its cosigners in turn, each signature followed by how many it has; and `embit` verifies both signatures over its own
+  signature hash.
+* The wallet's QR code for Sparrow, for all four address types on mainnet and a test network, read once with Sparrow's
+  own UR library (hummingbird, built from its source) the way Sparrow's scanner reads it: each gives the right address
+  type, the key's origin and the backup's name as the keystore's label.
+* The app's Kotlin code compiles with the Kotlin compiler against Android's own classes (those of Android 15, which
+  the app is built with), the Kotlin code from `uniffi-bindgen` and JNA.
+* The library type-checks for all three kinds of phone processor (64-bit ARM, 32-bit ARM and x86-64), with Rust's
+  standard library built for Android.
+* `android/build-rust.sh` and `build-rust.ps1` were run with stand-ins for rustup, cargo and cargo-ndk: their steps,
+  the user name kept out of the library, and a library that still holds it refused.
 
 ### Confirmed on real computers
 
@@ -424,6 +579,21 @@ By SeedLock's users:
   Sparrow read the code from it and the transaction was signed.
 * **Windows:** the live dice counter; the online warning in a virtual machine (the virtual machine warning while its
   network adapter is on, offline once it is off).
+* **Android** (the phone app's preview, on a Xiaomi Mi 8 with Android 10): built with Android Studio as
+  `android/README.md` says, installed, and started from its icon; the online warning and the offline message; a
+  backup added by scanning its QR code; the wallet imported into Sparrow from the phone's QR code; a copy of a backup
+  saved as a file; a transaction scanned from Sparrow with the phone's camera, signed, and the signed one scanned back
+  into Sparrow; backups that already existed on the computer added to the phone and used to sign, with everything
+  working in both directions; the additions made after the first test (the backup's name carried by its QR code,
+  the QR code saved as a picture, the keystore named after the backup in Sparrow, the new password copied for a
+  password manager, the place to save files chosen); multisig (2 of 3, on testnet): the phone's cosigner key
+  scanned by Sparrow, which named the keystore after the backup, the multisig wallet added to the phone from
+  Sparrow's QR code, and its payment signed on the phone, then finalized and broadcast by Sparrow; and, after the
+  fix for Android 10's file picker: a new build installed over the old one with its backups and multisig wallets
+  kept, a payment signed from the `.psbt` file that Sparrow saved (a multisig wallet's too), the "Saved" message
+  saying where a file went, each backup's fingerprint beside its name and the multisig wallet's screen naming its
+  cosigners among the backups, the review and the signed payment saying how many signatures it has and needs, and a
+  multisig wallet registered on the computer whose payments the backups on the phone sign.
 * Also confirmed: reading a backup from its QR code; the online warning on Linux; and multisig with Sparrow (2 of 3,
   native SegWit): the keys typed in or scanned by Sparrow's xpub button, the wallet's descriptor from a file, from an
   animated UR code and from static BBQr codes at two densities (in good light), and its transactions signed by one
@@ -438,10 +608,16 @@ You should know these:
 2. On Windows, the camera (ffmpeg's `dshow` options) and starting the browser with `explorer`; on macOS, the camera's
    preview window and starting the browser with `open`: written and tested here where possible, not yet reported on.
 3. The optional web page (`--qr-browser`) has not been looked at in a real browser since its animation was fixed.
-4. Menu 5's layout and its QR code for Sparrow; the keystore named after a backup read from its QR code (menu 10, 1);
+4. Menu 5's layout and its QR code for Sparrow, which since 0.2.0 is a UR crypto-output that names the keystore (the
+   phone app's code, which Sparrow read, is made by the same code); menu 8's QR code with the backup's name (0.2.0),
+   scanned by the phone and by the computer; the keystore named after a backup read from its QR code (menu 10, 1);
    the macOS online check (`route`) and virtual machine check (`sysctl`).
 5. Nested and legacy multisig, and one large static UR code: checked here only (with urtypes and embit, and with
    photos of Sparrow's exact codes on a screen).
+6. The phone app (a preview), on a real phone: adding a backup or a multisig wallet from its file (the same file
+   picker as a transaction's file, which works), nested and legacy multisig wallets, and other phones and Android
+   versions than the Xiaomi Mi 8 with Android 10; see
+   [The phone app, checked on a computer](#the-phone-app-checked-on-a-computer).
 
 Menu 9 and `seedlock camera` let anyone check their own camera setup.
 
@@ -470,6 +646,13 @@ python3 tools/crosscheck_backup.py target/release/seedlock
 python3 tools/recover.py --selftest
 ```
 
+The phone app's library, called from Kotlin as the app calls it (Linux and macOS; it needs a JDK, the Kotlin compiler,
+JNA's jar, and `pip install embit mnemonic urtypes`, as the script's first lines say):
+
+```sh
+KOTLINC=/path/to/kotlinc/bin/kotlinc JNA_JAR=/path/to/jna.jar sh android/jvm-check/run.sh
+```
+
 ## Technical notes
 
 ### The online check
@@ -489,13 +672,13 @@ A virtual machine is recognised from the firmware description it shows: on Linux
 
 SeedLock reads the camera through ffmpeg, started as a separate program, so that no native camera libraries (hard to
 build and to audit) are part of SeedLock: `v4l2` on Linux, `avfoundation` on macOS, `dshow` on Windows. It asks for
-1280 x 720 pictures first and falls back to 640 x 480. Each picture is read with `rqrr` as it is, then enlarged,
-sharpened and reduced, and then with its light evened out (local mean and contrast), also after a slight blur that
-washes out a screen's pixel pattern, within a time budget per picture. Animated UR codes (`ur:crypto-psbt`,
-`ur:crypto-output`) are collected in any order (extra parts make up for missed ones); BBQr codes (Coinkite's format:
-hexadecimal, base32, or deflate-compressed, which is unpacked to 16 MB at most so that it cannot fill the memory) are
-collected the same way. The preview window is an `ffplay` that receives the pictures through a pipe, with an outline
-around codes that were read and a progress bar drawn in.
+1280 x 720 pictures first and falls back to 640 x 480. Each picture is read by `seedlock-qr`, the reader the phone app
+uses too: with `rqrr` as it is, then enlarged, sharpened and reduced, and then with its light evened out (local mean
+and contrast), also after a slight blur that washes out a screen's pixel pattern, within a time budget per picture.
+Animated UR codes (`ur:crypto-psbt`, `ur:crypto-output`) are collected in any order (extra parts make up for missed
+ones); BBQr codes (Coinkite's format: hexadecimal, base32, or deflate-compressed, which is unpacked to 16 MB at most so
+that it cannot fill the memory) are collected the same way. The preview window is an `ffplay` that receives the
+pictures through a pipe, with an outline around codes that were read and a progress bar drawn in.
 
 ### The QR window
 
@@ -548,7 +731,9 @@ The signed transaction's animated code uses the `ur:crypto-psbt` format that See
 use: the transaction is split into small pictures shown in a loop, and the scanner collects them in any order. A single
 static code (`--static-qr`, small transactions only) is available for scripts, but it is much denser than one animated
 picture, so it can never be as easy to read. A cosigner key is a `ur:crypto-account` (as SeedSigner writes it), and
-menu 5's wallet is the plain output descriptor text, which Sparrow's descriptor import reads.
+menu 5's wallet a `ur:crypto-output`, which Sparrow's wallet import reads and which also names the keystore (before
+0.2.0 it was the plain output descriptor text, which Sparrow reads too). A backup's code is its text form with the
+backup's name on a second line ([FORMAT.md, section 6](FORMAT.md#6-text-form)).
 
 ### Backup format
 
@@ -563,6 +748,10 @@ this program.
 ```
 crates/seedlock-core      the library: mnemonic, entropy, backup format, wallet derivation, multisig, PSBT, QR frames (no I/O)
 crates/seedlock-cli       the `seedlock` program: prompts, menu, files, QR pictures and pages, camera scanning, online check
+crates/seedlock-qr        reading QR codes in camera pictures, and making QR codes (no I/O; used by both programs)
+crates/seedlock-ffi       the phone app's library: what the app calls, made callable from Kotlin by UniFFI
+crates/uniffi-bindgen     writes the Kotlin code that calls seedlock-ffi (run by android/build-rust.sh)
+android/                  the Android app (preview): its README, build-rust.sh and .ps1, the app, jvm-check/
 docs/GUIDE.md             the user guide
 docs/DEVELOPMENT.md       this page
 docs/FORMAT.md            the backup format specification, with a test vector
@@ -582,12 +771,14 @@ seedlocker transactions/  made where you run seedlock: signed files of scanned t
 
 Today: the English word list only; multisig as native, nested or legacy SegWit (no Taproot multisig); the unsigned
 PSBT comes in as a file or by camera (animated `ur:crypto-psbt`, BBQr, or a plain PSBT in one QR code), and the
-signed one leaves as a file or as an animated QR code; a command-line program only.
+signed one leaves as a file or as an animated QR code; a command-line program, and an Android app in preview.
 
-**Phone.** Backups made today open unchanged on a phone (use `--kdf light` for very old devices). Next steps: wrap
-`seedlock-core` with UniFFI (Kotlin/Swift) or a Tauri 2 mobile shell, add camera scanning for backup and PSBT QR
-codes (the core already collects animated UR frames, and reading QR codes from camera pictures is in the command-line
-crate), then a simple graphical interface. The core has no I/O, so none of this needs a rewrite.
+**Phone.** The Android app is a preview (see [The phone app](#the-phone-app-preview)): backups, the wallet for
+Sparrow, signing with the camera, and multisig (cosigner keys, multisig wallets, signing as a cosigner). Next steps:
+more tests on real phones; sign the app with SeedLock's own key and add it to the releases, with its checksum in the
+signed list; an iPhone app from the same library (UniFFI writes Swift as well). The phone and the command-line program
+write the same backups and the same QR codes (the backup's name in its QR code, the wallet for Sparrow as a QR code
+that names the keystore), so either one opens what the other made (use `--kdf light` for very old phones).
 
 **Reproducible builds.** Today a program that a user builds is not byte for byte the same file as a release's
 ready-made program (file paths and the compiler versions are recorded in it). Building the release programs in a fixed

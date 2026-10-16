@@ -314,6 +314,51 @@ pub fn to_file_contents(container: &[u8]) -> String {
     )
 }
 
+/// How a backup's QR code carries the backup's name (`docs/FORMAT.md`, section 6): on a line after the
+/// backup line, `# name: My wallet`. Every SeedLock skips lines that start with `#` when it reads a
+/// backup, so a QR code with a name reads as the same backup everywhere, also in the versions that came
+/// before it.
+const NAME_LINE: &str = "# name: ";
+
+/// The longest name a backup's QR code carries, in characters (the longest backup name).
+pub const MAX_NAME_CHARS: usize = 100;
+
+/// The text of a backup's QR code: its backup line and, when `name` is not empty, its name on a second
+/// line (`# name: ...`, see `docs/FORMAT.md`), so that the phone or computer that scans it can suggest
+/// the name. `text` is a backup's line or file.
+pub fn qr_text(text: &str, name: &str) -> Result<String> {
+    let line = to_text(&from_text(text)?);
+    Ok(match clean_name(name) {
+        Some(name) => format!("{line}\n{NAME_LINE}{name}"),
+        None => line,
+    })
+}
+
+/// The name a backup's text carries (a backup's QR code made by [`qr_text`]), if it has one; none for a
+/// code without one, such as those of the versions before names were added.
+pub fn name_in(text: &str) -> Option<String> {
+    text.lines().find_map(|line| {
+        let rest = line.trim().strip_prefix('#')?.trim_start();
+        let label = rest.get(..5)?;
+        if !label.eq_ignore_ascii_case("name:") {
+            return None;
+        }
+        clean_name(&rest[5..])
+    })
+}
+
+/// A name as a QR code can carry it: one line, no control characters, [`MAX_NAME_CHARS`] at most.
+fn clean_name(name: &str) -> Option<String> {
+    let one_line: String = name.chars().filter(|c| !c.is_control()).collect();
+    let cut: String = one_line.trim().chars().take(MAX_NAME_CHARS).collect();
+    let cut = cut.trim_end();
+    if cut.is_empty() {
+        None
+    } else {
+        Some(cut.to_string())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -426,6 +471,28 @@ mod tests {
 
         // file contents helper produces something from_text accepts
         assert_eq!(from_text(&to_file_contents(&c)).unwrap(), c);
+    }
+
+    #[test]
+    fn a_backup_qr_code_carries_its_name_and_still_reads_as_the_backup() {
+        let c = encrypt(&[5u8; 16], PW, FAST).unwrap();
+        let line = to_text(&c);
+        let file = to_file_contents(&c);
+        let code = qr_text(&file, "  Poupança 2026\t").unwrap();
+        assert_eq!(code, format!("{line}\n# name: Poupança 2026"));
+        // read as before: the name line is a comment, so earlier versions take the code as it is
+        assert_eq!(from_text(&code).unwrap(), c);
+        assert!(code.to_uppercase().starts_with(TEXT_PREFIX), "what earlier scanners check first");
+        assert_eq!(name_in(&code).as_deref(), Some("Poupança 2026"));
+        // no name: the backup line alone, exactly as before
+        assert_eq!(qr_text(&file, " \n ").unwrap(), line);
+        assert_eq!(name_in(&line), None);
+        assert_eq!(name_in(&file), None, "a file's own comment lines are no name");
+        // one line, and not too long
+        assert_eq!(name_in(&qr_text(&file, "two\nlines").unwrap()).as_deref(), Some("twolines"));
+        assert_eq!(name_in(&qr_text(&file, &"x".repeat(150)).unwrap()).unwrap().chars().count(), MAX_NAME_CHARS);
+        assert_eq!(name_in("SEEDLOCK1:ABC\n#NAME:  Cold  ").as_deref(), Some("Cold"));
+        assert!(qr_text("SEEDLOCK1:ABC", "x").is_err(), "only a backup gets a QR code");
     }
 
     #[test]

@@ -17,3 +17,15 @@ __pycache__/
 Thumbs.db
 # the ready-made programs that tools/build-release.sh makes
 /dist/
+# the Android app: what android/build-rust.sh makes, and what Android Studio and Gradle make
+/android/app/src/main/jniLibs/
+/android/app/src/main/java/org/seedlock/ffi/
+/android/.gradle/
+/android/.idea/
+/android/.kotlin/
+/android/build/
+/android/app/build/
+/android/local.properties
+*.iml
+*.apk
+*.aab

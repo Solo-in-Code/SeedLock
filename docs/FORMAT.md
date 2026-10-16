@@ -94,6 +94,23 @@ The BIP39 passphrase ("25th word") is deliberately **not** stored.
 A `.seedlock` file is that text on one line, preceded by two `#` comment lines
 explaining what the file is. Files are UTF-8 (ASCII in practice).
 
+A backup's QR code holds the text form, and may carry the backup's name on a
+second line, so that the device that scans it can suggest that name:
+
+```
+SEEDLOCK1:KNGEWAIB...
+# name: My wallet
+```
+
+The name is one line of UTF-8 text, at most 100 characters, after `# name: `.
+It is not encrypted: whoever sees the code can read it, as whoever sees a file
+can read its file name. Because readers ignore lines that start with `#`, such a
+code reads as the same backup in every reader, also in those that came before the
+name line. Since version 0.2.0 the phone app and the command-line program (menu 8,
+`seedlock qr`) write it. When they read such a code, the phone app suggests the
+name, and the command-line program uses it for the files it saves (unless the same
+backup is in its backups folder, whose name it then uses).
+
 ## 7. Known-answer test vector
 
 These inputs use deliberately cheap Argon2 settings; they are for testing only.

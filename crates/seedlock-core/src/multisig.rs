@@ -311,7 +311,7 @@ impl MultisigWallet {
         Ok(keys)
     }
 
-    /// The multisig script at `chain/index`: M <keys> N OP_CHECKMULTISIG. It is the witness script of
+    /// The multisig script at `chain/index`: `M <keys> N OP_CHECKMULTISIG`. It is the witness script of
     /// a native or nested SegWit wallet and the redeem script of a legacy one.
     pub fn witness_script(&self, chain: u32, index: u32) -> Result<ScriptBuf> {
         let keys = self.keys_at(chain, index)?;

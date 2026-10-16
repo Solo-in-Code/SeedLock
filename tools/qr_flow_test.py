@@ -2,7 +2,7 @@
 """
 End-to-end checks of the QR features, driven like a person would, with independent tools:
 
-  H) menu 8 saves the backup's QR code as a PNG in "seedlocker backups"; OpenCV reads it back.
+  H) menu 8 saves the backup's QR code as a PNG in "seedlocker backups"; OpenCV reads it back: the backup and its name.
   I) menu 6: the explanations, the .psbt file list, wrong paths, the network guess, going back.
   J) (option --qr-browser) the signed transaction opens as a web page: a (fake) browser launcher is called; every QR picture
      on the page is rasterised and decoded, the Foundation UR library rebuilds the signed PSBT, the page's
@@ -16,8 +16,10 @@ End-to-end checks of the QR features, driven like a person would, with independe
   O) a backup read from its QR code with the camera, through the real ffmpeg: it opens and it signs.
   N) the QR window (the default for showing QR codes): the real ffplay on a virtual X screen is filmed, the film is
      decoded and reassembled into the signed PSBT; t, the backup QR code, and the fallbacks without a screen or ffplay.
+  P) menu 5: the wallet laid out for Sparrow, equal to embit's; its QR picture, a UR crypto-output, read with urtypes
+     as embit's own account key, its keystore named after the backup.
 
-    pip install pexpect opencv-python-headless numpy cbor2 embit segno;  npm install jsdom (set JSDOM_DIR to its node_modules)
+    pip install pexpect opencv-python-headless numpy cbor2 embit segno urtypes;  npm install jsdom (set JSDOM_DIR to its node_modules)
     python3 qr_flow_test.py ../target/release/seedlock --ur-lib foundation-ur-py
 """
 import argparse, io, json, os, re, shutil, subprocess, sys, tempfile, time
@@ -134,19 +136,22 @@ usb = tempfile.mkdtemp(suffix=" usb stick")                                     
 s.text("press Enter to skip: "); s.send(f"'{usb}' ")                                     # ... dropped the Linux way
 s.text("A copy was saved as:")
 s.expect(r"\n> ")
+assert 'This QR code holds the ENCRYPTED backup and its name, "wallet-one".' in s.before, s.before
 picture = os.path.join(work, "seedlocker backups", "wallet-one-qr.png")
 assert picture in s.before.replace("\r", "").replace("\n", "") or os.path.isfile(picture), s.before
 assert os.path.isfile(picture)
 backup_line = [l for l in open(os.path.join(work, "seedlocker backups", "wallet-one.seedlock")).read().splitlines() if l.startswith("SEEDLOCK1:")][0]
+# what the code holds since 0.2.0: the backup line, then the backup's name on a line that readers skip as a comment
+BACKUP_CODE = backup_line + "\n# name: wallet-one"
 img = cv2.imread(picture, cv2.IMREAD_GRAYSCALE)
 assert img is not None and img.shape[0] == img.shape[1] and img.shape[0] >= 300, None if img is None else img.shape
-assert decode_qr(img) == backup_line, "the picture does not contain the backup"
+assert decode_qr(img) == BACKUP_CODE, ("the picture does not contain the backup and its name", decode_qr(img))
 assert os.listdir(usb) == ["wallet-one-qr.png"] and open(os.path.join(usb, "wallet-one-qr.png"), "rb").read() == open(picture, "rb").read()
 s.send("8"); s.text(CHOOSE); s.send("1")     # again: same picture, nothing piles up
 s.text("The QR code was also saved as a picture"); s.text("Save a copy somewhere else too"); s.send()   # Enter: no copy
 s.expect(r"\n> "); s.send("q"); s.expect(pexpect.EOF)
 assert sorted(f for f in os.listdir(os.path.join(work, "seedlocker backups")) if f.endswith(".png")) == ["wallet-one-qr.png"]
-print(f"H) menu 8 saved 'wallet-one-qr.png' ({img.shape[0]}x{img.shape[1]} px) in the backups folder; OpenCV reads the backup text from it; a copy goes to a dropped folder (a wrong one is asked again); asking again piles up nothing: OK")
+print(f"H) menu 8 saved 'wallet-one-qr.png' ({img.shape[0]}x{img.shape[1]} px) in the backups folder; OpenCV reads the backup text and its name line from it; a copy goes to a dropped folder (a wrong one is asked again); asking again piles up nothing: OK")
 
 # ---------------------------------------------------------------- I) menu 6: guidance, file list, wrong path, network found, back
 s = Session()
@@ -294,9 +299,10 @@ def ur_parts(psbt_bytes, max_len=80, loops=2):
     return [first] + [enc.next_part() for _ in range(loops * n - 1)], n
 
 
-def camera_picture(text, rng, w=1280, h=720, side=440, still=False):
-    """`still`: the code stays where it is from picture to picture, as with a camera held in front of a screen."""
-    q = segno.make(text.upper(), error="l", micro=False, boost_error=False)
+def camera_picture(text, rng, w=1280, h=720, side=440, still=False, upper=True):
+    """`still`: the code stays where it is from picture to picture, as with a camera held in front of a screen.
+    `upper`: in capitals, as UR codes are shown (a backup's name keeps its own letters: upper=False)."""
+    q = segno.make(text.upper() if upper else text, error="l", micro=False, boost_error=False, encoding="utf-8")
     m = np.pad(np.array([[0 if b else 255 for b in row] for row in q.matrix], np.uint8), 4, constant_values=255)
     picture = np.full((h, w), 70, np.uint8)                              # dark bezel ...
     picture[30:h - 30, 120:w - 120] = 205                                # ... a bright screen ...
@@ -511,10 +517,11 @@ else:
         s.text("(or type t to draw the QR code here instead): ")
         read, size = window_film(1.5, "backup-window")
         backup_line = [l for l in open(os.path.join(work, "seedlocker backups", "wallet-two.seedlock")).read().splitlines() if l.startswith("SEEDLOCK1:")][0]
-        assert read and set(read) == {backup_line}, (len(read), read[:1])
+        assert read and set(read) == {backup_line + "\n# name: wallet-two"}, (len(read), read[:1])
         s.send(); s.expect(pexpect.EOF)
         assert "The QR code was also saved as a picture" in s.log.getvalue() and not running("ffplay")
-        print(f"N3) menu 8 ('seedlock qr'): the backup's QR code opens in the window ({size[1]}x{size[0]} px) and reads back as exactly the backup text; the picture is still saved: OK")
+        print(f"N3) menu 8 ('seedlock qr'): the backup's QR code opens in the window ({size[1]}x{size[0]} px) and reads back as exactly the backup text "
+              f"and its name line; the picture is still saved: OK")
 
         no_screen = {k: v for k, v in env_win.items() if k not in ("DISPLAY", "WAYLAND_DISPLAY")}
         no_ffplay = dict(env_win, SEEDLOCK_FFPLAY="/nonexistent/ffplay")
@@ -528,11 +535,12 @@ else:
 
 # ---------------------------------------------------------------- O) a backup read from its QR code with the camera (the real ffmpeg)
 backup_two = [l for l in open(os.path.join(work, "seedlocker backups", "wallet-two.seedlock")).read().splitlines() if l.startswith("SEEDLOCK1:")][0]
+named_two = backup_two + "\n# name: wallet-two"               # the code as menu 8 (since 0.2.0) and the phone app show it
 rng = np.random.default_rng(11)
 shots_b = os.path.join(tools, "shots-backup"); os.makedirs(shots_b)
 a_transaction = ur_parts(psbt_big.serialize())[0][0]          # shown first: it must be passed over, with a word
-for i, text in enumerate([a_transaction] * 4 + [backup_two] * 8):
-    cv2.imwrite(os.path.join(shots_b, f"f{i:03d}.png"), camera_picture(text, rng))
+for i, text in enumerate([a_transaction] * 4 + [named_two] * 8):
+    cv2.imwrite(os.path.join(shots_b, f"f{i:03d}.png"), camera_picture(text, rng, upper=text is a_transaction))
 video_b = os.path.join(tools, "backup.mp4")
 subprocess.run([FFMPEG, "-y", "-loglevel", "error", "-framerate", "4", "-i", os.path.join(shots_b, "f%03d.png"), *codec, "-pix_fmt", "yuv420p", video_b], check=True)
 wrapper_b = os.path.join(tools, "ffmpeg-as-camera-backup")
@@ -574,8 +582,8 @@ sp = PSBT.parse(open(signed_path, "rb").read())
 assert in_pub.verify(ec.Signature.parse(sp.inputs[0].partial_sigs[in_pub][:-1]), sp.sighash(0)), "the signature does not verify"
 assert not any("backup" in f.lower() and f.endswith(".seedlock") and f != "wallet-two.seedlock" and f != "wallet-one.seedlock"
                for f in os.listdir(os.path.join(work, "seedlocker backups"))), "a scanned backup is not saved anywhere"
-print("O) a backup read from its QR code with the camera (the real ffmpeg; a soft, noisy, compressed video that shows a transaction's "
-      "code first): the transaction's code is passed over with a word; the backup opens (menu 4) and signs (menu 6, signature verified by embit): OK")
+print("O) a backup read from its QR code, with its name line, with the camera (the real ffmpeg; a soft, noisy, compressed video that shows a "
+      "transaction's code first): the transaction's code is passed over with a word; the backup opens (menu 4) and signs (menu 6, signature verified by embit): OK")
 
 # ---------------------------------------------------------------- P) menu 5: the wallet laid out for Sparrow
 from embit import bip32, bip39, script as escript
@@ -605,6 +613,23 @@ root2 = bip32.HDKey.from_seed(bip39.mnemonic_to_seed(WORDS2))
 fp2 = root2.my_fingerprint.hex()
 def xpub_at(path, net):
     return root2.derive(path).to_public().to_base58(version=NETWORKS[net]["xpub"])
+
+from urtypes.crypto import Output as UrOutput
+def wallet_code(png, path, net):
+    """Menu 5's QR picture (since 0.2.0): one UR crypto-output, the format of Sparrow's wallet import, that urtypes (the
+    library SeedSigner uses) reads as embit's own account key, with its origin, and the keystore named after the backup."""
+    code = decode_qr(cv2.imread(png, cv2.IMREAD_GRAYSCALE))
+    assert code.startswith("UR:CRYPTO-OUTPUT/") and code.count("/") == 1, ("one single-part code", code[:40])
+    dec = URDecoder(); dec.receive_part(code.lower())
+    assert dec.is_complete()
+    out = UrOutput.from_cbor(bytes(dec.result_message().cbor))
+    key, coin = out.hd_key(), 0 if net == "main" else 1
+    assert [e.expression for e in out.script_expressions] == ["wpkh"], out.script_expressions
+    assert key.bip32_key() == xpub_at(path, net), (key.bip32_key(), xpub_at(path, net))
+    assert key.origin.source_fingerprint == root2.my_fingerprint
+    assert [(c.index, c.hardened) for c in key.origin.components] == [(84, True), (coin, True), (0, True)]
+    assert key.name == "wallet-two", key.name
+    return code
 
 def wallet_screen(s, answer_network=None):
     s.text("Does this wallet use a BIP39 passphrase? [y/N] "); s.send("n")
@@ -639,7 +664,9 @@ saved_png = [f for f in os.listdir(backups) if f.startswith("wallet-two-for-spar
 assert len(saved_txt) == 1 and len(saved_png) == 1, os.listdir(backups)
 text_saved = open(os.path.join(backups, saved_txt[0])).read()
 assert desc in text_saved and "Derivation         : m/84'/0'/0'" in text_saved
-assert decode_qr(cv2.imread(os.path.join(backups, saved_png[0]), cv2.IMREAD_GRAYSCALE)) == desc, "the saved QR code holds the descriptor"
+assert 'names its keystore "wallet-two"' in shown and 'when Sparrow asks for the wallet\'s name, type "wallet-two" there too' in shown, shown[-2500:]
+code = wallet_code(os.path.join(backups, saved_png[0]), "m/84h/0h/0h", "main")
+assert f"As a QR code (UR crypto-output):\n  {code}\n" in text_saved, "the saved text ends with the QR code's text"
 
 # (2) no transaction to learn from: one question, and a test network gives m/84'/1'/0' and a tpub
 empty5 = tempfile.mkdtemp()
@@ -651,10 +678,12 @@ assert f"Wallet {fp2} for Sparrow: Native Segwit (P2WPKH), a test network (testn
 assert "Derivation         : m/84'/1'/0'" in shown_t and f"xpub               : {xpub_at('m/84h/1h/0h', 'test')}" in shown_t
 address_t = escript.p2wpkh(root2.derive("m/84h/1h/0h/0/0").to_public().key).address(NETWORKS["test"])
 assert address_t.startswith("tb1q") and address_t in shown_t
+wallet_code(os.path.join(empty5, "seedlocker backups", "wallet-two-for-sparrow-qr.png"), "m/84h/1h/0h", "test")
 print(f"P) menu 5 lays the wallet out for Sparrow: fingerprint, derivation m/84'/0'/0' (as Sparrow wants it) and xpub equal embit's; "
       f"network and address type found from this wallet's latest transaction; the other three types; the one-line descriptor's checksum "
-      f"agrees with BIP380's reference code; saved as text and as a QR picture that reads back; with no transaction, one question: "
-      f"t gives m/84'/1'/0', a tpub and tb1q addresses, all equal to embit's: OK")
+      f"agrees with BIP380's reference code; saved as text and as a QR picture: a UR crypto-output that urtypes reads as embit's own "
+      f"account key, its keystore named \"wallet-two\"; with no transaction, one question: t gives m/84'/1'/0', a tpub and tb1q addresses, "
+      f"and a QR code with the tpub, all equal to embit's: OK")
 
 log = ALL.getvalue()
 for secret in (PW1, PW2, WORDS2):

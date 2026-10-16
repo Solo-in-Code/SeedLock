@@ -448,7 +448,9 @@ fn finish_backup(m: &Mnemonic, save: &SaveOpts) -> Res<()> {
         || (ui::interactive()
             && ui::confirm("\nShow the encrypted backup as a QR code (to scan with a phone)?", false)?);
     if want_qr {
-        show_qr(&backup::to_text(&container))?;
+        // the code carries the backup's name, which the phone or computer that scans it suggests
+        let name = path.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default();
+        show_qr(&backup::qr_text(&backup::to_text(&container), &name)?)?;
     }
     Ok(())
 }
@@ -1210,27 +1212,30 @@ fn offer_copy(file: &Path) -> Res<()> {
 fn qr_backup(args: QrArgs, ask_for_copy: bool) -> Res<()> {
     let arg = args.backup.trim();
     let text = load_backup_text(arg)?;
-    let canonical = backup::to_text(&backup::from_text(&text)?);
-    let name = if arg.to_uppercase().starts_with(backup::TEXT_PREFIX) {
-        SCRIPT_DEFAULT_NAME.to_string()
+    // The code carries the backup's name (its file name, or the one a pasted backup carries), so that the
+    // phone or computer that scans it can suggest it; a backup without a name gets a code without one.
+    let carried = if arg.to_uppercase().starts_with(backup::TEXT_PREFIX) {
+        backup::name_in(&text)
     } else {
-        find_backup_file(arg)?
-            .file_stem()
-            .map(|s| s.to_string_lossy().into_owned())
-            .unwrap_or_else(|| SCRIPT_DEFAULT_NAME.to_string())
+        find_backup_file(arg)?.file_stem().map(|s| s.to_string_lossy().into_owned())
     };
-    show_qr(&canonical)?;
-    let picture = save_backup_qr_picture(&name, &canonical)?;
+    let code = backup::qr_text(&text, carried.as_deref().unwrap_or(""))?;
+    let name = carried.clone().unwrap_or_else(|| SCRIPT_DEFAULT_NAME.to_string());
+    show_qr(&code)?;
+    let picture = save_backup_qr_picture(&name, &code)?;
     eprintln!("The QR code was also saved as a picture, next to your backups:\n  {}", full_path(&picture).display());
     eprintln!("You can print that picture, or open it on your phone or computer.");
     if ask_for_copy && ui::interactive() {
         offer_copy(&picture)?;
     }
     if let Some(path) = &args.svg {
-        write_new_file(path, ui::qr_svg(&canonical)?.as_bytes())?;
+        write_new_file(path, ui::qr_svg(&code)?.as_bytes())?;
         eprintln!("QR code (SVG) written to {}", full_path(path).display());
     }
-    eprintln!("This QR code holds the ENCRYPTED backup only. It is useless without the password.");
+    match &carried {
+        Some(name) => eprintln!("This QR code holds the ENCRYPTED backup and its name, \"{name}\". It is useless without the password."),
+        None => eprintln!("This QR code holds the ENCRYPTED backup only. It is useless without the password."),
+    }
     Ok(())
 }
 
@@ -1511,62 +1516,21 @@ fn ask_network(default: NetworkArg) -> Res<NetworkArg> {
     }
 }
 
-/// What the key paths inside a transaction say about its network.
-#[derive(Debug, PartialEq, Eq)]
-enum PathsSay {
-    /// Every key path uses coin type 0': mainnet.
-    Mainnet,
-    /// Every key path uses coin type 1': a test network. Testnet, signet and regtest use exactly
-    /// the same transactions and key paths, so nothing in a transaction can say which of them it is.
-    TestNetwork,
-    /// There are no key paths with a known coin type.
-    Nothing,
-    /// Some key paths say mainnet and others a test network: something is wrong with it.
-    Both,
-}
-
-/// Look at every key path in the transaction (its inputs, its change outputs and the wallet keys
-/// it may carry, m/84'/0'/... being mainnet and m/84'/1'/... a test network) and at the version of
-/// those wallet keys (xpub or tpub).
-fn network_from_paths(tx: &Psbt) -> PathsSay {
-    use seedlock_core::bitcoin::bip32::{ChildNumber, DerivationPath};
-    use seedlock_core::bitcoin::NetworkKind;
-    let coin = |path: &DerivationPath| -> Option<bool> {
-        let steps: &[ChildNumber] = path.as_ref();
-        match steps.get(1) {
-            Some(ChildNumber::Hardened { index: 0 }) => Some(true),
-            Some(ChildNumber::Hardened { index: 1 }) => Some(false),
-            _ => None,
-        }
-    };
-    let input_paths = tx.inputs.iter().flat_map(|i| {
-        i.bip32_derivation.values().map(|(_, p)| p).chain(i.tap_key_origins.values().map(|(_, (_, p))| p))
-    });
-    let output_paths = tx.outputs.iter().flat_map(|o| {
-        o.bip32_derivation.values().map(|(_, p)| p).chain(o.tap_key_origins.values().map(|(_, (_, p))| p))
-    });
-    let mut mainnet: Vec<bool> = input_paths.chain(output_paths).chain(tx.xpub.values().map(|(_, p)| p)).filter_map(coin).collect();
-    mainnet.extend(tx.xpub.keys().map(|xpub| xpub.network == NetworkKind::Main));
-    match (mainnet.iter().any(|&m| m), mainnet.iter().any(|&m| !m)) {
-        (true, false) => PathsSay::Mainnet,
-        (false, true) => PathsSay::TestNetwork,
-        (false, false) => PathsSay::Nothing,
-        (true, true) => PathsSay::Both,
-    }
-}
-
 /// The network to sign for: the one asked for with --network, else the one the transaction's key
-/// paths say. Asks only when the transaction cannot tell. Returns it and how to describe it.
+/// paths say (every key path in it, m/84'/0'/... being mainnet and m/84'/1'/... a test network, and the
+/// version of the wallet keys it may carry, xpub or tpub). Asks only when the transaction cannot tell.
+/// Returns it and how to describe it.
 fn choose_network(tx: &Psbt, asked: Option<NetworkArg>, registered: &[(String, MultisigWallet)]) -> Res<(NetworkArg, String)> {
+    use psbt::NetworkHint;
     if let Some(network) = asked {
         return Ok((network, network_name(network.network()).to_string()));
     }
-    let why = match network_from_paths(tx) {
-        PathsSay::Mainnet => return Ok((NetworkArg::Mainnet, "mainnet (real bitcoin), found from the transaction".to_string())),
-        PathsSay::TestNetwork => {
+    let why = match psbt::network_hint(tx) {
+        NetworkHint::Mainnet => return Ok((NetworkArg::Mainnet, "mainnet (real bitcoin), found from the transaction".to_string())),
+        NetworkHint::TestNetwork => {
             return Ok((NetworkArg::Testnet, "a test network (testnet or signet), found from the transaction".to_string()))
         }
-        PathsSay::Nothing => {
+        NetworkHint::Unknown => {
             // legacy multisig key paths (m/45'/...) name no network: a registered wallet that owns an input does
             let owner = tx.inputs.iter().flat_map(|i| i.bip32_derivation.values()).find_map(|(fp, path)| {
                 registered.iter().find(|(_, ms)| ms.locate(*fp, path).is_some()).map(|(_, ms)| ms.is_mainnet())
@@ -1579,7 +1543,7 @@ fn choose_network(tx: &Psbt, asked: Option<NetworkArg>, registered: &[(String, M
                 None => "This transaction has no key paths that say which network it is for.",
             }
         }
-        PathsSay::Both => "Some key paths in this transaction say mainnet and others a test network: something is wrong with it.",
+        NetworkHint::Conflicting => "Some key paths in this transaction say mainnet and others a test network: something is wrong with it.",
     };
     if !ui::interactive() {
         return fail(format!("{why} Say which network it is for with --network."));
@@ -1721,7 +1685,7 @@ fn ask_real_or_test() -> Res<NetworkArg> {
 // Multisig wallets (menu 10)
 // ===========================================================================
 
-/// "<backup>-cosigner.txt", "<backup>-cosigner-qr.png" and their "-2", "-3" ... copies.
+/// `<backup>-cosigner.txt`, `<backup>-cosigner-qr.png` and their `-2`, `-3` ... copies.
 fn is_cosigner_file(name: &str) -> bool {
     let Some((stem, ext)) = name.rsplit_once('.') else { return false };
     if !matches!(ext.to_ascii_lowercase().as_str(), "txt" | "png") {
@@ -2050,8 +2014,9 @@ fn backup_line(text: &str) -> Option<String> {
 }
 
 /// The name of a backup, for the files made from it and for Sparrow's keystore label: its file name.
-/// A backup read from a QR code (or pasted) carries no name: when it is one of the backups in the
-/// backups folder, that one's name is used; otherwise the person is asked (default "seedlock-backup").
+/// For a backup read from a QR code (or pasted): when it is one of the backups in the backups folder,
+/// that one's name; else the name its QR code carries (from SeedLock's phone app, or from version 0.2.0
+/// of this program on); otherwise the person is asked (default "seedlock-backup").
 fn named_backup(arg: &str) -> Res<String> {
     let arg = arg.trim();
     if !arg.to_uppercase().starts_with(backup::TEXT_PREFIX) {
@@ -2066,10 +2031,14 @@ fn named_backup(arg: &str) -> Res<String> {
             }
         }
     }
+    if let Some(name) = backup::name_in(arg).and_then(|carried| clean_backup_name(&carried).ok()) {
+        eprintln!("\n(This QR code carries the backup's name, \"{name}\", so that name is used.)");
+        return Ok(name);
+    }
     if !ui::interactive() {
         return Ok(SCRIPT_DEFAULT_NAME.to_string());
     }
-    eprintln!("\nA QR code does not hold the backup's name, and this backup is not in your backups folder.");
+    eprintln!("\nThis QR code does not carry the backup's name, and this backup is not in your backups folder.");
     loop {
         let typed = ui::read_line(&format!(
             "What is this seed called? (It names the saved files and the keystore in Sparrow.) [{SCRIPT_DEFAULT_NAME}]: "
@@ -2097,8 +2066,9 @@ fn backup_name(arg: &str) -> String {
 }
 
 /// The wallet laid out for Sparrow: its three fields (the derivation written the way Sparrow wants
-/// it), a one-line output descriptor for File > Import Wallet, the other address types and the
-/// first addresses to compare. Shown, offered as a QR code, and saved next to the backups.
+/// it), its QR code (a UR crypto-output that also names Sparrow's keystore after the backup, `name`), a
+/// one-line output descriptor, the other address types and the first addresses to compare. Shown,
+/// offered as a QR code, and saved next to the backups.
 fn wallet_for_sparrow(wallet: &Wallet, script: ScriptType, network: NetworkArg, passphrase_used: bool, found: &str, name: &str) -> Res<()> {
     use std::fmt::Write as _;
     let net = match network {
@@ -2108,6 +2078,10 @@ fn wallet_for_sparrow(wallet: &Wallet, script: ScriptType, network: NetworkArg, 
     };
     let body = script.wrap_descriptor(&format!("{}/<0;1>/*", wallet.xpub_with_origin(script, 0)?));
     let descriptor = format!("{body}#{}", seedlock_core::wallet::descriptor_checksum(&body)?);
+    // The QR code is the same wallet as a UR crypto-output, which also names Sparrow's keystore after the backup.
+    let label = multisig::keystore_label(name, wallet.fingerprint());
+    let shortened = if !name.trim().is_empty() && label != name.trim() { " (Sparrow allows 16 characters)" } else { "" };
+    let code = wallet.crypto_output_ur(script, 0, &label)?;
     let base = path_to_display(&wallet.account_path(script, 0)?);
     let mut t = String::new();
     let _ = writeln!(t, "Wallet {} for Sparrow: {}, {net}", wallet.fingerprint(), sparrow_name(script));
@@ -2119,8 +2093,9 @@ fn wallet_for_sparrow(wallet: &Wallet, script: ScriptType, network: NetworkArg, 
     let _ = writeln!(t, "  Master fingerprint : {}", wallet.fingerprint());
     let _ = writeln!(t, "  Derivation         : {base}");
     let _ = writeln!(t, "  xpub               : {}", wallet.account_xpub(script, 0)?);
-    let _ = writeln!(t, "\nOr in one step, with this output descriptor: scan its QR code (File > Import Wallet, Output Descriptor,");
-    let _ = writeln!(t, "Scan...), or paste it (File > New Wallet, then on the Settings tab, next to Descriptor, Edit...):");
+    let _ = writeln!(t, "\nOr in one step: scan the wallet's QR code (File > Import Wallet, Output Descriptor, Scan...), which also");
+    let _ = writeln!(t, "names its keystore \"{label}\"{shortened}; when Sparrow asks for the wallet's name, type \"{name}\" there too.");
+    let _ = writeln!(t, "Or paste this output descriptor (File > New Wallet, then on the Settings tab, next to Descriptor, Edit...):");
     let _ = writeln!(t, "  {descriptor}");
     let _ = writeln!(t, "\nThe same wallet with the other address types (if you choose another Script Type in Sparrow):");
     for other in ScriptType::ALL.into_iter().filter(|s| s.purpose() != script.purpose()) {
@@ -2134,24 +2109,24 @@ fn wallet_for_sparrow(wallet: &Wallet, script: ScriptType, network: NetworkArg, 
     print!("\n{t}");
     let _ = std::io::Write::flush(&mut std::io::stdout());
     if ui::can_animate() && ui::confirm("\nShow the wallet as a QR code for Sparrow to scan?", true)? {
-        show_wallet_qr(&descriptor)?;
+        show_wallet_qr(&code)?;
     }
     let dir = ensure_backup_folder()?;
     let text_file = unused_path(&dir, &format!("{name}-for-sparrow"), "txt");
-    write_new_file(&text_file, t.as_bytes())?;
-    let code = QrCode::with_error_correction_level(descriptor.as_bytes(), EcLevel::M)?;
+    write_new_file(&text_file, format!("{t}\nAs a QR code (UR crypto-output):\n  {code}\n").as_bytes())?;
+    let picture = QrCode::with_error_correction_level(code.as_bytes(), EcLevel::M)?;
     let picture_file = unused_path(&dir, &format!("{name}-for-sparrow-qr"), "png");
-    write_new_file(&picture_file, &qrimg::png(&code, 8))?;
+    write_new_file(&picture_file, &qrimg::png(&picture, 8))?;
     eprintln!("\nSaved next to your backups. They hold no secrets, but anyone who reads them can see all your addresses:");
     eprintln!("  {}\n  {}", full_path(&text_file).display(), full_path(&picture_file).display());
     Ok(())
 }
 
-/// The wallet's descriptor as a QR code: in a window of its own, else in the terminal.
-fn show_wallet_qr(descriptor: &str) -> Res<()> {
+/// The wallet's QR code for Sparrow (a UR crypto-output): in a window of its own, else in the terminal.
+fn show_wallet_qr(code: &str) -> Res<()> {
     show_text_qr(
         "SeedLock - wallet for Sparrow",
-        descriptor,
+        code,
         "In Sparrow, choose File > Import Wallet, then Output Descriptor and Scan..., and hold the camera toward this code.",
     )
 }
@@ -2337,12 +2312,7 @@ mod tests {
 
     #[test]
     fn the_network_is_found_from_the_key_paths() {
-        assert_eq!(network_from_paths(&psbt_with_paths(Some("m/84'/0'/0'/0/3"), None)), PathsSay::Mainnet);
-        assert_eq!(network_from_paths(&psbt_with_paths(Some("m/86'/1'/0'/0/3"), Some("m/86'/1'/0'/1/0"))), PathsSay::TestNetwork);
-        assert_eq!(network_from_paths(&psbt_with_paths(None, None)), PathsSay::Nothing);
-        assert_eq!(network_from_paths(&psbt_with_paths(Some("m/0/1"), None)), PathsSay::Nothing, "a path without a coin type says nothing");
-        // a change output that says otherwise than the input: something is wrong
-        assert_eq!(network_from_paths(&psbt_with_paths(Some("m/84'/0'/0'/0/3"), Some("m/84'/1'/0'/1/0"))), PathsSay::Both);
+        // (what each kind of key path says is tested in seedlock-core, psbt::network_hint)
         // --network always wins, and says exactly what was asked for
         let (network, label) = choose_network(&psbt_with_paths(Some("m/84'/1'/0'/0/3"), None), Some(NetworkArg::Signet), &[]).unwrap();
         assert!(matches!(network, NetworkArg::Signet) && label == "signet");
@@ -2350,6 +2320,13 @@ mod tests {
         assert!(matches!(network, NetworkArg::Testnet) && label.contains("testnet or signet"), "{label}");
         let (network, label) = choose_network(&psbt_with_paths(Some("m/84'/0'/0'/0/3"), None), None, &[]).unwrap();
         assert!(matches!(network, NetworkArg::Mainnet) && label.contains("real bitcoin"), "{label}");
+        // nobody to ask (as in these tests): no key paths, or contradicting ones, give a clear error instead of a guess
+        if !ui::interactive() {
+            let none = choose_network(&psbt_with_paths(None, None), None, &[]).map(|_| ()).unwrap_err().to_string();
+            assert!(none.contains("no key paths") && none.contains("--network"), "{none}");
+            let both = choose_network(&psbt_with_paths(Some("m/84'/0'/0'/0/3"), Some("m/84'/1'/0'/1/0")), None, &[]).map(|_| ()).unwrap_err().to_string();
+            assert!(both.contains("something is wrong"), "{both}");
+        }
     }
 
     #[test]

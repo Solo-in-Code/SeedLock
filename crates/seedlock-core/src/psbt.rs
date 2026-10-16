@@ -794,6 +794,87 @@ fn cbor_byte_string_content(payload: &[u8]) -> Result<&[u8]> {
     Ok(rest)
 }
 
+/// What the key paths inside a transaction say about the network it is for.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum NetworkHint {
+    /// Every key path uses coin type 0' (and every wallet key it carries is an xpub): mainnet.
+    Mainnet,
+    /// Every key path uses coin type 1': a test network. Testnet, signet and regtest use exactly the
+    /// same transactions and key paths, so nothing in a transaction can say which of them it is.
+    TestNetwork,
+    /// There are no key paths with a known coin type (legacy multisig paths m/45'/... name none).
+    Unknown,
+    /// Some key paths say mainnet and others a test network: something is wrong with it.
+    Conflicting,
+}
+
+/// Look at every key path in the transaction (its inputs, its outputs and the wallet keys it may
+/// carry, m/84'/0'/... being mainnet and m/84'/1'/... a test network) and at the version of those
+/// wallet keys (xpub or tpub). The command-line program and the phone app both find the network this way.
+pub fn network_hint(psbt: &Psbt) -> NetworkHint {
+    let coin = |path: &DerivationPath| -> Option<bool> {
+        let steps: &[ChildNumber] = path.as_ref();
+        match steps.get(1) {
+            Some(ChildNumber::Hardened { index: 0 }) => Some(true),
+            Some(ChildNumber::Hardened { index: 1 }) => Some(false),
+            _ => None,
+        }
+    };
+    let input_paths = psbt
+        .inputs
+        .iter()
+        .flat_map(|i| i.bip32_derivation.values().map(|(_, p)| p).chain(i.tap_key_origins.values().map(|(_, (_, p))| p)));
+    let output_paths = psbt
+        .outputs
+        .iter()
+        .flat_map(|o| o.bip32_derivation.values().map(|(_, p)| p).chain(o.tap_key_origins.values().map(|(_, (_, p))| p)));
+    let mut mainnet: Vec<bool> = input_paths.chain(output_paths).chain(psbt.xpub.values().map(|(_, p)| p)).filter_map(coin).collect();
+    mainnet.extend(psbt.xpub.keys().map(|xpub| xpub.network == bitcoin::NetworkKind::Main));
+    match (mainnet.iter().any(|&m| m), mainnet.iter().any(|&m| !m)) {
+        (true, false) => NetworkHint::Mainnet,
+        (false, true) => NetworkHint::TestNetwork,
+        (false, false) => NetworkHint::Unknown,
+        (true, true) => NetworkHint::Conflicting,
+    }
+}
+
+#[cfg(test)]
+mod network_hint_tests {
+    use super::*;
+    use bitcoin::secp256k1::{Secp256k1, SecretKey};
+    use bitcoin::{absolute::LockTime, transaction::Version, Amount, OutPoint, ScriptBuf, Sequence, Transaction, TxIn, TxOut, Witness};
+
+    /// A transaction with one key path in its input (and optionally one in a change output).
+    fn psbt_with_paths(input_path: Option<&str>, change_path: Option<&str>) -> Psbt {
+        let tx = Transaction {
+            version: Version::TWO,
+            lock_time: LockTime::ZERO,
+            input: vec![TxIn { previous_output: OutPoint::null(), script_sig: ScriptBuf::new(), sequence: Sequence::MAX, witness: Witness::new() }],
+            output: vec![TxOut { value: Amount::from_sat(1000), script_pubkey: ScriptBuf::new() }],
+        };
+        let mut psbt = Psbt::from_unsigned_tx(tx).unwrap();
+        let key = SecretKey::from_slice(&[1u8; 32]).unwrap().public_key(&Secp256k1::new());
+        let origin = |p: &str| (Fingerprint::from([1, 2, 3, 4]), p.parse::<DerivationPath>().unwrap());
+        if let Some(p) = input_path {
+            psbt.inputs[0].bip32_derivation.insert(key, origin(p));
+        }
+        if let Some(p) = change_path {
+            psbt.outputs[0].bip32_derivation.insert(key, origin(p));
+        }
+        psbt
+    }
+
+    #[test]
+    fn the_network_is_found_from_the_key_paths() {
+        assert_eq!(network_hint(&psbt_with_paths(Some("m/84'/0'/0'/0/3"), None)), NetworkHint::Mainnet);
+        assert_eq!(network_hint(&psbt_with_paths(Some("m/86'/1'/0'/0/3"), Some("m/86'/1'/0'/1/0"))), NetworkHint::TestNetwork);
+        assert_eq!(network_hint(&psbt_with_paths(None, None)), NetworkHint::Unknown);
+        assert_eq!(network_hint(&psbt_with_paths(Some("m/0/1"), None)), NetworkHint::Unknown, "a path without a coin type says nothing");
+        // a change output that says otherwise than the input: something is wrong
+        assert_eq!(network_hint(&psbt_with_paths(Some("m/84'/0'/0'/0/3"), Some("m/84'/1'/0'/1/0"))), NetworkHint::Conflicting);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -1,9 +1,12 @@
 [workspace]
 resolver = "2"
-members = ["crates/seedlock-core", "crates/seedlock-cli"]
+members = ["crates/seedlock-core", "crates/seedlock-cli", "crates/seedlock-qr", "crates/seedlock-ffi", "crates/uniffi-bindgen"]
+# A plain `cargo build` (and the release scripts) builds the command-line program, exactly as before the
+# phone app's crates were added; those are built with -p (see android/README.md).
+default-members = ["crates/seedlock-core", "crates/seedlock-cli"]
 
 [workspace.package]
-version = "0.1.2"
+version = "0.2.0"
 edition = "2021"
 rust-version = "1.85"
 license = "MIT"
@@ -17,6 +20,12 @@ codegen-units = 1
 panic = "abort"
 strip = true
 overflow-checks = true
+
+# The phone app's library (android/build-rust.sh): the release build, except that a panic (a bug) becomes an
+# error that the app shows, instead of closing the app at once; UniFFI catches it.
+[profile.phone]
+inherits = "release"
+panic = "unwind"
 
 # Make the crypto dependencies fast even in debug builds / `cargo test`
 # (Argon2 with hundreds of MiB is painfully slow at opt-level 0).

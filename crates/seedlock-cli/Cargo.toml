@@ -12,11 +12,16 @@ path = "src/main.rs"
 
 [dependencies]
 seedlock-core = { path = "../seedlock-core" }
+# reading QR codes in camera pictures (shared with the phone app)
+seedlock-qr = { path = "../seedlock-qr" }
 clap = { version = "4", default-features = false, features = ["std", "derive", "help", "usage", "error-context", "suggestions"] }
 qrcode = { version = "0.14", default-features = false, features = ["svg"] }
 rpassword = "7"
-rqrr = { version = "0.10", default-features = false }
 zeroize = "1"
+
+[dev-dependencies]
+# to read back, in the tests, the QR codes that SeedLock draws
+rqrr = { version = "0.10", default-features = false }
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"
