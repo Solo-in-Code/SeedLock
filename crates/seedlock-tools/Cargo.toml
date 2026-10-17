@@ -1,0 +1,13 @@
+[package]
+name = "seedlock-tools"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Helpers for building SeedLock's phone app: the license notices the app shows, and the check of a release APK. Used on the computer that builds the app, never part of SeedLock itself"
+publish = false
+
+[dependencies]
+# all three are already among SeedLock's libraries (Cargo.lock), at these versions
+bitcoin_hashes = "0.14"
+miniz_oxide = { version = "0.8", default-features = false, features = ["with-alloc"] }
+serde_json = "1"

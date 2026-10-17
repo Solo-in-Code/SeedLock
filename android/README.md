@@ -7,7 +7,8 @@ camera, shows you every address and amount, signs, and gives the signed transact
 QR code. It also creates new seeds and their backups, and signs as one of the cosigners of a multisig
 wallet (for example 2 of 3), as the computer's menu 10 does.
 
-**This is a preview, not yet a release.** Try it with a test wallet (testnet) or a small amount first.
+**This is a preview.** Try it with a test wallet (testnet) or a small amount first. From version 0.2.1
+on, every release has the app ready-made, signed with SeedLock's own key; you can also build it yourself.
 
 What makes it safe to use on a phone:
 
@@ -23,10 +24,61 @@ What makes it safe to use on a phone:
   which other apps cannot read. Once a backup was opened on the phone, SeedLock also keeps its wallet's
   fingerprint there, to show it beside the backup's name; nothing about a BIP39 passphrase is ever kept.
 
-## Building it
+## Installing the ready-made app
+
+On the online computer:
+
+1. **Download it.** On SeedLock's GitHub page, click **Releases** on the right. Under the newest release,
+   in its **Assets**, download `seedlock-0.2.1-android.apk` (the version may be newer) and
+   `SHA256SUMS.txt`.
+2. **Check it,** as for the computer programs (the main README, Part 1, Way A, step 2). Open a terminal
+   in the folder it was downloaded to and type the line for your computer:
+
+   | Computer | Command |
+   |---|---|
+   | Windows | `(Get-FileHash seedlock-0.2.1-android.apk).Hash` |
+   | Mac | `shasum -a 256 seedlock-0.2.1-android.apk` |
+   | Linux | `sha256sum seedlock-0.2.1-android.apk` |
+
+   The long number it shows must be exactly the one next to the file's name in `SHA256SUMS.txt`. If it is
+   not, delete the file. To check that list's signature too, see the guide:
+   [Checking a downloaded program](../docs/GUIDE.md#checking-a-downloaded-program).
+3. **Copy it to the phone** (USB cable, SD card or USB stick) and open it with the phone's **Files** app.
+   Android asks to allow installing apps from that app: allow it, install, and then take the permission
+   back (**Settings > Apps > Files > Install unknown apps**).
+
+Then put the phone in **airplane mode** and keep Wi-Fi, mobile data and Bluetooth off. SeedLock's first
+screen says whether the phone is offline.
+
+**Its signature.** The app is signed with SeedLock's own Android key. Android checks that by itself: it
+installs an update only when the update is signed with the same key, and the backups on the phone stay.
+The SHA-256 fingerprint of that key's certificate is:
+
+```
+02:27:2A:CC:06:84:2D:36:3A:19:A6:CF:48:3D:D9:28:5F:CB:CA:C5:38:AB:98:24:51:14:35:2A:B9:68:63:44
+```
+
+(Android's `apksigner verify --print-certs` shows it too, in small letters and without the colons.)
+
+**If you built SeedLock yourself before version 0.2.1,** that app is also called SeedLock, but it is
+signed with your computer's test key, so Android does not let the ready-made app replace it. Move to the
+ready-made app this way:
+
+1. In the old app, open each backup and choose **Copy it > Save a copy as a file**, and on each multisig
+   wallet's screen **Save a copy as a file** (or make sure you still have those files on the computer).
+2. Uninstall the old SeedLock (**Settings > Apps > SeedLock > Uninstall**). This deletes the backups on
+   the phone: do it only once you have their copies.
+3. Install the ready-made app as above, and add the backups and the multisig wallets again (**Add a
+   backup > Open its file**, **Add a multisig wallet**).
+
+## Building it yourself
 
 You build the app on one of your computers (Linux, Mac or Windows) and copy it to the phone once. The
 building computer needs the internet; the phone never does.
+
+What you build is a **test build**: it installs as **SeedLock test** (`org.seedlock.app.debug`), an app
+of its own beside the ready-made SeedLock, with backups of its own. Trying a build never touches the app
+you use.
 
 ### What you need, once
 
@@ -52,8 +104,9 @@ building computer needs the internet; the phone never does.
    | Linux, macOS | `sh android/build-rust.sh` |
    | Windows (PowerShell or Command Prompt) | `powershell -ExecutionPolicy Bypass -File android\build-rust.ps1` |
 
-   It builds `libseedlock_ffi.so` for 64-bit phones, older 32-bit phones and the emulator, and writes the
-   Kotlin code that calls it. It ends with `Ready:` and the files it made. The first time takes several
+   It builds `libseedlock_ffi.so` for 64-bit phones, older 32-bit phones and the emulator, writes the
+   Kotlin code that calls it, and writes the license notices that the app shows (from exactly the
+   libraries it built). It ends with `Ready:` and the files it made. The first time takes several
    minutes.
 
 2. **Open the folder `android` in Android Studio** (**File > Open**, then choose the `android` folder
@@ -64,7 +117,8 @@ building computer needs the internet; the phone never does.
 3. **Build the app:** **Build > Generate Bundle(s) / APK(s) > Generate APK(s)** (in older versions of
    Android Studio: **Build > Build Bundle(s) / APK(s) > Build APK(s)**). When it is done, a message links
    to the file: the app is `app-debug.apk`, in `android/app/build/outputs/apk/debug`. It is the only
-   file to install (the project builds no separate test app).
+   file to install (the project builds no separate test app). The ready-made app of a release is built
+   differently, signed with SeedLock's own key: `docs/DEVELOPMENT.md`, Making a release.
 
    A warning that the INTERNET permission "was tagged ... to remove other declarations but no other
    declaration present" is expected: it says that no library asked for the internet, so there was nothing
@@ -84,15 +138,15 @@ Either:
 * **With a USB cable, from Android Studio.** On the phone: **Settings > About phone**, tap **Build
   number** seven times (this turns on the developer options), then **Settings > System > Developer
   options > USB debugging** on. Connect the phone, allow the computer on the phone's screen, choose the
-  phone at the top of Android Studio and click **Run**: it installs SeedLock and starts it. Afterwards,
-  turn **USB debugging** off again.
+  phone at the top of Android Studio and click **Run**: it installs SeedLock test and starts it.
+  Afterwards, turn **USB debugging** off again.
 * **Or with adb**, with USB debugging on as above. In a terminal, in SeedLock's folder (`adb` is in the
   folder `platform-tools` of the Android SDK: `~/Android/Sdk` on Linux, `~/Library/Android/sdk` on a Mac,
   `%LOCALAPPDATA%\Android\Sdk` on Windows):
 
   ```sh
   adb install -r android/app/build/outputs/apk/debug/app-debug.apk
-  adb shell am start -n org.seedlock.app/.MainActivity
+  adb shell am start -n org.seedlock.app.debug/org.seedlock.app.MainActivity
   ```
 
 * **Or as a file.** Copy `app-debug.apk` to the phone (USB cable, SD card or USB stick) and open it with
@@ -105,20 +159,20 @@ Developer options**. There, Android Studio and adb can install apps only when **
 too (Xiaomi asks you to sign in to a Mi account for it), and the phone asks you to confirm each
 installation on its screen. Installing the file with the phone's file manager works without it.
 
-SeedLock then has its icon among the phone's apps. With adb, `adb shell pm list packages seedlock` must
-show `package:org.seedlock.app`. An earlier build may have left a test app without an icon,
+SeedLock test then has its icon among the phone's apps. With adb, `adb shell pm list packages seedlock`
+must show `package:org.seedlock.app.debug` (and `package:org.seedlock.app` if the ready-made SeedLock is
+installed too). An earlier build may have left a test app without an icon,
 `package:org.seedlock.app.test`: remove it with `adb uninstall org.seedlock.app.test`.
 
 **A newer build** installs over the old one, in any of these ways, and the backups on the phone stay, as
 long as both builds come from the same computer (Android Studio signs them with that computer's own
 test key). A build from another computer is refused as an update: then first save a copy of each backup
-(**Save a copy as a file**), uninstall SeedLock, install the new build and add the backups again.
+(**Save a copy as a file**), uninstall SeedLock test, install the new build and add the backups again.
+Builds from before version 0.2.1 were called SeedLock, not SeedLock test: a newer build installs beside
+such an old one, so move its backups over (save their copies, add them) and then uninstall the old one.
 
 Then put the phone in **airplane mode** and keep Wi-Fi, mobile data and Bluetooth off. SeedLock's first
 screen says whether the phone is offline.
-
-The app built this way is signed with Android Studio's own test key, which is fine for trying it. The
-release will be signed with SeedLock's own key, like the computer programs.
 
 ## What to try
 
@@ -126,7 +180,10 @@ release will be signed with SeedLock's own key, like the computer programs.
    the phone, **Add a backup > Scan its QR code**. Or copy its `.seedlock` file to the phone and choose
    **Open its file**: then its file name is offered as the backup's name. (The QR codes of SeedLock 0.2.0
    and newer carry the backup's name, on the computer and on the phone, see 8; older ones do not.)
-2. **Check the backup**: its password opens it, and **Compare** says MATCH for the words on paper.
+2. **Check the backup**: its password opens it, and **Compare** says MATCH for the words on paper. With
+   the password in a password manager on this phone: copy it there and come back to SeedLock within 5
+   minutes to paste it (the prompt waits that long); when the prompt closes, SeedLock empties the
+   clipboard.
 3. **Wallet for Sparrow**: in Sparrow on the online computer, **File > Import Wallet > Output Descriptor >
    Scan...** and hold the phone's screen to the camera. Sparrow must show the same fingerprint and the
    same first addresses as the phone. Sparrow names the wallet's keystore after the backup (its first
@@ -145,8 +202,9 @@ release will be signed with SeedLock's own key, like the computer programs.
    in. Coming back, SeedLock empties the clipboard if its own copy of the password is still on it.
 6. **Leave the app** in the middle of something (home button): coming back, SeedLock is on its first
    screen again. A screenshot of SeedLock shows nothing.
-7. **Its permissions:** in **Settings > Apps > SeedLock > Permissions**, the camera is the only one. Where
-   the menu (**⋮**) there offers **All permissions**, "have full network access" is not in the list.
+7. **Its permissions:** in **Settings > Apps > SeedLock** (or **SeedLock test**) **> Permissions**, the
+   camera is the only one. Where the menu (**⋮**) there offers **All permissions**, "have full network
+   access" is not in the list.
 8. **Copy a backup** (open it in **Backups on this phone**, then **Copy it**): **Show it as a QR code**
    and scan it with SeedLock on another phone, where the backup's name comes along; **Save its QR code as
    a picture** (to print or keep) and **Save a copy as a file**. Android asks where to save: its menu
@@ -179,11 +237,18 @@ release will be signed with SeedLock's own key, like the computer programs.
       the computer keeps (in its `multisig wallets` folder, inside `seedlocker backups`), and Sparrow opens
       it too (**File > Import Wallet > Output Descriptor**).
 10. **Fingerprints.** Once a backup was opened on the phone (**Check the backup**, for example), its
-    wallet's fingerprint shows beside its name, on the first screen and on its own screen. A multisig
-    wallet's screen then names the backups on the phone that are its cosigners. Start signing a
-    transaction with a backup that is not one of the transaction's wallets: before asking for the
-    password, the phone says so, and which backup on the phone is. (With a BIP39 passphrase, a seed is
-    another wallet, with another fingerprint: then open the backup anyway.)
+    wallet's fingerprint shows beside its name, on the first screen and on its own screen. A backup added
+    from a file or a QR code shows it only once it was opened here, even one first made on this phone:
+    the backup is encrypted, and SeedLock writes the fingerprint into neither its file nor its QR code,
+    where anyone could read it. A multisig wallet's screen then names the backups on the phone that are
+    its cosigners. Start signing a transaction with a backup that is not one of the transaction's
+    wallets: before asking for the password, the phone says so, and which backup on the phone is. (With a
+    BIP39 passphrase, a seed is another wallet, with another fingerprint: then open the backup anyway.)
+11. **About and licenses.** At the bottom of the first screen, **About SeedLock and its licenses** shows
+    the version, where the source code is, and the license notices of every library the app is built
+    from.
+12. **The ready-made app** (from version 0.2.1 on): install it as **Installing the ready-made app** says.
+    It installs beside SeedLock test, as SeedLock; add a backup to it and sign with it as in 1 and 4.
 
 Tell what happened at each step, and what the phone showed when something did not work (its make and
 model, and the Android version from **Settings > About phone**).
@@ -201,3 +266,7 @@ model, and the Android version from **Settings > About phone**).
 * `jvm-check/run.sh` checks that bridge on a computer, the way the app uses it: Kotlin calls the Rust
   code through JNA, and embit (Python) independently checks the signatures it makes, of a payment and of
   a 2-of-3 multisig payment signed by two of its cosigners.
+* `crates/seedlock-tools` is a helper for the computer that builds the app, never part of it:
+  `build-rust.sh` runs it to write the license notices the app shows (`app/src/main/assets/notices.txt`,
+  not kept in git), and it checks a release APK before it is published (`docs/DEVELOPMENT.md`, Making a
+  release).

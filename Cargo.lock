@@ -877,7 +877,7 @@ dependencies = [
 
 [[package]]
 name = "seedlock-cli"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "clap",
  "libc",
@@ -891,7 +891,7 @@ dependencies = [
 
 [[package]]
 name = "seedlock-core"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "argon2",
  "bip39",
@@ -908,7 +908,7 @@ dependencies = [
 
 [[package]]
 name = "seedlock-ffi"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "seedlock-core",
  "seedlock-qr",
@@ -920,10 +920,19 @@ dependencies = [
 
 [[package]]
 name = "seedlock-qr"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "qrcode",
  "rqrr",
+]
+
+[[package]]
+name = "seedlock-tools"
+version = "0.2.1"
+dependencies = [
+ "bitcoin_hashes 0.14.101",
+ "miniz_oxide",
+ "serde_json",
 ]
 
 [[package]]
@@ -1199,7 +1208,7 @@ dependencies = [
 
 [[package]]
 name = "uniffi-bindgen"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "uniffi",
 ]

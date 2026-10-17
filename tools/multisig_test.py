@@ -164,10 +164,10 @@ s.text("SeedLock cannot tell by itself which network the multisig wallet is for.
 s.text("Type m or t [m]: "); s.send("t")
 s.text("Which kind of multisig wallet is it (Sparrow's \"Script Type\")?")
 s.text("Choose 1, 2 or 3 [1]: "); s.send("")                             # Native Segwit (P2WSH), the usual one
+s.text('Saved in the "cosigner keys" folder of your backups')              # saved first, before the QR code is offered
+shown = s.before                                                       # the key laid out for Sparrow, just above
 s.text("Show this seed's key as a QR code for Sparrow to scan? [Y/n] ")
-shown = s.before                                                       # the key laid out for Sparrow, just above the question
 s.send("n")
-s.text('Saved in the "cosigner keys" folder of your backups')
 s.expect(r"\n> "); s.send("q"); s.expect(pexpect.EOF)
 for wanted in (f"Master fingerprint : {fps['alice']}", "Derivation         : m/48'/1'/0'/2'", f"xpub               : {tpubs['alice']}",
                f"[{fps['alice']}/48h/1h/0h/2h]{tpubs['alice']}", 'Script Type\r\n"Native Segwit (P2WSH)"',
@@ -524,10 +524,10 @@ def share_scanned(wrapper, after_scan):
 
 
 def finish_share(s, before):
-    s.text("Show this seed's key as a QR code for Sparrow to scan? [Y/n] ")
+    s.text('Saved in the "cosigner keys" folder of your backups')          # saved first, before the QR code is offered
     shown = ANSI_RE.sub("", s.before)
+    s.text("Show this seed's key as a QR code for Sparrow to scan? [Y/n] ")
     s.send("n")
-    s.text('Saved in the "cosigner keys" folder of your backups')
     s.expect(r"\n> "); s.send("q"); s.expect(pexpect.EOF)
     new = sorted(set(os.listdir(COSIGNERS)) - before)
     picture = [f for f in new if f.endswith(".png")]

@@ -83,6 +83,9 @@ Do this on the online computer, before you copy the program to the offline one:
    or shows another fingerprint, do not use the download.
 5. Then compare the program's fingerprint with `SHA256SUMS.txt`, as the README says (Part 1, Way A, step 2).
 
+The phone app, `seedlock-0.2.1-android.apk`, is in the same list and is checked the same way
+([android/README.md](../android/README.md), Installing the ready-made app).
+
 The same fingerprint is in the README. If you know SeedLock's maintainer from somewhere else, such as a website or a
 profile, compare it there too: someone who could change SeedLock's GitHub page could change this text as well.
 
@@ -127,7 +130,7 @@ Type a number and press Enter. After each task SeedLock comes back to the menu; 
 When SeedLock asks a question, the answer in square brackets is what you get by pressing Enter alone: `[24]`, `[1]`.
 In a yes-or-no question, `[y/N]` means that Enter answers no, and `[Y/n]` that Enter answers yes.
 
-The menu's title shows SeedLock's version: `=== SeedLock 0.2.0: offline Bitcoin seed tool ===`.
+The menu's title shows SeedLock's version: `=== SeedLock 0.2.1: offline Bitcoin seed tool ===`.
 `./seedlock --version` (Windows: `.\seedlock.exe --version`) shows it too.
 
 ### Is this computer online?
@@ -203,15 +206,15 @@ Your backups (folder: /home/me/SeedLock/seedlocker backups):
   picture on a phone). A window shows what the camera sees; QR codes of other things are passed over. The backup is
   used exactly as if its file had been chosen, and nothing is saved. This choice is offered in menus 3, 4, 5, 6 and
   10. When SeedLock needs the backup's name (for the files it saves, and for Sparrow's keystore label), it uses the
-  name of the same backup in your backups folder; else the name that the QR code carries (the codes of SeedLock
-  0.2.0 and newer carry it, on the computer and on the phone); and only for an older code without one, it asks.
+  name of the same backup in your backups folder; else the name that the QR code carries (the codes made since 0.2.0
+  carry it, on the computer and on the phone); and only for an older code without one, it asks.
 
 ### The other files SeedLock makes
 
 | File | Made by | What it is |
 |---|---|---|
 | `seedlocker backups/<name>.seedlock` | Menus 1 and 2 | The encrypted backup |
-| `seedlocker backups/<name>-qr.png` | Menu 8 | The backup as a QR code picture (encrypted, like the file), with its name |
+| `seedlocker backups/<name>-qr.png` | Menu 8, and menus 1 and 2 when they show the QR code | The backup as a QR code picture (encrypted, like the file), with its name |
 | `seedlocker backups/<name>-for-sparrow.txt` and `<name>-for-sparrow-qr.png` | Menu 5 | What Sparrow needs for the watch-only wallet |
 | `seedlocker backups/cosigner keys/<name>-cosigner.txt` and `<name>-cosigner-qr.png` | Menu 10, 1 | This seed's key for a multisig wallet |
 | `seedlocker backups/multisig wallets/<name>.multisig` | Menu 10, 2 | A registered multisig wallet |
@@ -247,8 +250,9 @@ Do this in private: nobody looking, no camera pointed at the screen.
    password, the backup can never be opened.
 7. **Saved and checked:** SeedLock encrypts the backup (this takes a moment), saves it, opens it again from the disk
    to prove that it decrypts to the same seed, and shows where it is saved, with the wallet fingerprint.
-8. Optionally, it shows the encrypted backup as a QR code (to scan with a phone, for example), which also carries
-   the backup's name. Menu 8 does the same and also saves it as a picture.
+8. Optionally, it shows the encrypted backup as a QR code (to scan with a phone, for example), which also carries the
+   backup's name. As in menu 8, it first saves the code as a picture next to the backup, `<name>-qr.png`, and says
+   where.
 
 Then: copy the backup file to a USB stick and/or the cloud, keep the password in your password manager, and check
 the backup now and then with menu 4.
@@ -305,9 +309,10 @@ it can suggest that name. The name is not encrypted: whoever sees the code can r
 can read its file name. (Codes from SeedLock before 0.2.0 hold no name; they still work, and SeedLock then asks for
 one.)
 
-SeedLock also saves the code as a picture next to the backup, `<name>-qr.png` (large and sharp, to print or to keep
-on a phone), and then offers to save a copy somewhere else too: type or drop a folder, for example on a USB stick, or
-press Enter to skip. A file that is already there is never replaced.
+Before it shows the code, SeedLock saves it as a picture next to the backup, `<name>-qr.png` (large and sharp, to
+print or to keep on a phone), and says where. When you are done with the code (Enter, or `t` and the code in the
+terminal), it offers to save a copy of the picture somewhere else too: type or drop a folder, for example on a USB
+stick, or press Enter to skip. A file that is already there is never replaced.
 
 To use the backup from its QR code later, choose `c` where SeedLock asks for a backup (see
 [Choosing a backup](#choosing-a-backup)).
@@ -332,12 +337,12 @@ payments: the master fingerprint, the derivation and the xpub. Menu 5 shows them
    * The same wallet with the other address types (Taproot, Nested Segwit, Legacy), each with its derivation and
      xpub, named as in Sparrow's *Script Type* list.
    * **The first five receive addresses.** Sparrow must show exactly these.
-4. `Show the wallet as a QR code for Sparrow to scan? [Y/n]`: press Enter, and the wallet appears as a QR code in a
+4. SeedLock saves all of it next to your backups, and says where: `<name>-for-sparrow.txt` (with the QR code's text
+   at the end) and the QR code as `<name>-for-sparrow-qr.png`.
+5. `Show the wallet as a QR code for Sparrow to scan? [Y/n]`: press Enter, and the wallet appears as a QR code in a
    window of its own. The code is in Sparrow's own format (a UR crypto-output, the same as SeedLock's phone app
    shows), and besides the wallet it carries a name for Sparrow's keystore: the backup's name, cut to 16 characters,
    the most that Sparrow allows (SeedLock says so when it cuts it).
-5. SeedLock saves all of it next to your backups: `<name>-for-sparrow.txt` (with the QR code's text at the end) and
-   the QR code as `<name>-for-sparrow-qr.png`.
 
 ### In Sparrow
 
@@ -458,10 +463,11 @@ Do this for each SeedLock seed of the wallet.
 5. Fill in the other cosigners' keystores the same way (other devices show their own keys), and click **Apply** to
    save the wallet.
 
-SeedLock saves the key as text and as a QR picture in the folder `cosigner keys` (inside `seedlocker backups`). These
-files hold no secret: only this seed's public key for this kind of wallet. You do not need them to sign. Keep them to
-add this seed to a wallet again later (for example, after reinstalling Sparrow), or to give this seed's key to
-someone else who sets up the wallet. The registered wallet (step 2) is what SeedLock itself uses.
+Before it offers the QR code, SeedLock saves the key as text and as a QR picture in the folder `cosigner keys` (inside
+`seedlocker backups`), and says where. These files hold no secret: only this seed's public key for this kind of
+wallet. You do not need them to sign. Keep them to add this seed to a wallet again later (for example, after
+reinstalling Sparrow), or to give this seed's key to someone else who sets up the wallet. The registered wallet (step
+2) is what SeedLock itself uses.
 
 ### Step 2: register the wallet (menu 10, then 2)
 
@@ -565,13 +571,15 @@ Sparrow's QR window has two settings, and SeedLock reads every combination:
 
 ### SeedLock's QR window
 
-SeedLock shows its own QR codes (the signed payment, a backup in menu 8, the wallet for Sparrow in menu 5, a cosigner
-key in menu 10) in a window of its own, about 640 pixels square, the way Sparrow shows its codes. Its size does not
-depend on the terminal. An animated code changes about three times a second.
+SeedLock shows its own QR codes (the signed payment, a backup in menus 1, 2 and 8, the wallet for Sparrow in menu 5, a
+cosigner key in menu 10) in a window of its own, about 640 pixels square, the way Sparrow shows its codes. Its size
+does not depend on the terminal. An animated code changes about three times a second.
 
 * Make it bigger by dragging its corner. If you do not see it, it may be behind the terminal.
 * Press Enter in the terminal when you are done: the window closes. It also closes if SeedLock stops for any reason.
 * Type `t` instead of Enter to draw the code in the terminal instead.
+* What SeedLock keeps of a code (the signed payment's file, a backup's picture, the files of menus 5 and 10) is saved
+  before the window opens, and SeedLock says where; Enter or `t` changes nothing about that.
 * Without a graphical screen or without ffplay, SeedLock says why in one line and draws the code in the terminal.
 
 ### A QR code in the terminal

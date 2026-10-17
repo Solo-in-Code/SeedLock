@@ -49,7 +49,8 @@ abstract class Screen(val app: MainActivity) {
 /**
  * SeedLock's only activity. Seeds and wallets live in Rust (seedlock-ffi) and are let go of when the
  * screens that hold them close; every screen above the first one, and every dialog, closes as soon as
- * the app is left.
+ * the app is left. Two exceptions, each for a few minutes, are for a password manager on this phone: after
+ * a new password was copied, and while a backup's password is asked for (see [onStop]).
  */
 class MainActivity : Activity() {
     private val stack = ArrayList<Screen>()
@@ -94,6 +95,18 @@ class MainActivity : Activity() {
 
     /** True once SeedLock was left after [copySecret]: back in front, it empties the clipboard. */
     private var leftWithCopy = false
+
+    /** The prompts for a backup's password on the screen now (see [promptsForPassword]). */
+    private val passwordPrompts = ArrayList<Dialog>()
+
+    /**
+     * When SeedLock was left while it asked for a backup's password (SystemClock.elapsedRealtime), else 0:
+     * most likely to copy the password from a password manager on this phone (see [onStop] and [onStart]).
+     */
+    private var leftAtPrompt = 0L
+
+    /** True once SeedLock was left while the password prompt now on the screen was open: the clipboard likely holds the password. */
+    private var awayDuringPrompt = false
 
     /**
      * The answer of a file picker (or of the camera question) that arrived before SeedLock was on the
@@ -192,6 +205,36 @@ class MainActivity : Activity() {
         dialog.setOnDismissListener { dialogs.remove(dialog) }
     }
 
+    /**
+     * Marks `dialog` (shown with [showSecure]) as a prompt for a backup's password. No backup is open while it
+     * asks, so SeedLock may be left meanwhile for up to [KEEP_OPEN_MS], to copy the password from a password
+     * manager on this phone, without closing the prompt or the screen below it (see [onStop]). When the prompt
+     * closes, `clear` empties its fields, and if SeedLock was left meanwhile, the clipboard is emptied too: it
+     * most likely holds the password.
+     */
+    fun promptsForPassword(dialog: Dialog, clear: () -> Unit) {
+        if (dialog !in dialogs) return // not shown: SeedLock is left
+        passwordPrompts.add(dialog)
+        dialog.setOnDismissListener {
+            dialogs.remove(dialog)
+            passwordPrompts.remove(dialog)
+            clear()
+            if (awayDuringPrompt) {
+                awayDuringPrompt = false
+                clearClipboard()
+            }
+        }
+    }
+
+    /**
+     * True when all that SeedLock shows is a prompt for a backup's password over the first screen and the
+     * backup's (or a multisig wallet's) screen: then no seed is open, nor anything else that leaving
+     * SeedLock must close.
+     */
+    private fun waitsForPassword(): Boolean =
+        passwordPrompts.isNotEmpty() && dialogs.all { it in passwordPrompts } &&
+            stack.all { it is HomeScreen || it is BackupScreen || it is MultisigScreen }
+
     override fun onStart() {
         super.onStart()
         onScreen = true
@@ -211,6 +254,19 @@ class MainActivity : Activity() {
                 )
             }
         }
+        if (leftAtPrompt != 0L) {
+            val away = SystemClock.elapsedRealtime() - leftAtPrompt
+            leftAtPrompt = 0L
+            if (away > KEEP_OPEN_MS) {
+                for (dialog in ArrayList(dialogs)) dialog.dismiss()
+                home()
+                say(
+                    "Closed",
+                    "You were away from SeedLock for longer than ${KEEP_OPEN_MS / 60_000} minutes while it asked for a " +
+                        "password, so it closed what was open, as it does whenever it is left."
+                )
+            }
+        }
     }
 
     override fun onStop() {
@@ -218,6 +274,14 @@ class MainActivity : Activity() {
         onScreen = false
         if (copiedLabel != null) leftWithCopy = true
         if (inPicker || askingPermission || isChangingConfigurations) return
+        if (waitsForPassword()) {
+            // Most likely gone to copy the password from a password manager on this phone. No backup is open
+            // while SeedLock asks for its password, so the prompt and the screen below it stay; back after
+            // more than KEEP_OPEN_MS, they close (onStart).
+            leftAtPrompt = SystemClock.elapsedRealtime()
+            awayDuringPrompt = true
+            return
+        }
         for (dialog in ArrayList(dialogs)) dialog.dismiss()
         if (SystemClock.elapsedRealtime() <= keepOpenUntil) {
             // gone to paste a copied password into a password manager on this phone: back soon
@@ -275,6 +339,16 @@ class MainActivity : Activity() {
             if (Build.VERSION.SDK_INT >= 28) manager.clearPrimaryClip() else manager.setPrimaryClip(ClipData.newPlainText("", ""))
         }
         copiedLabel = null
+    }
+
+    /** Empties the clipboard, whatever it holds (writing to it needs no focus, unlike reading it). */
+    private fun clearClipboard() {
+        try {
+            val manager = clipboard()
+            if (Build.VERSION.SDK_INT >= 28) manager.clearPrimaryClip() else manager.setPrimaryClip(ClipData.newPlainText("", ""))
+        } catch (e: Exception) {
+            // the password manager's own setting can still empty it
+        }
     }
 
     private fun clipboard(): ClipboardManager = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
@@ -365,7 +439,10 @@ class MainActivity : Activity() {
         const val REQUEST_FILE = 1
         const val REQUEST_CAMERA = 2
 
-        /** For this long after [copySecret], SeedLock may be left without closing what is open. */
+        /**
+         * For this long after [copySecret], and while a backup's password is asked for ([promptsForPassword]),
+         * SeedLock may be left without closing what is open.
+         */
         const val KEEP_OPEN_MS = 5 * 60_000L
     }
 }

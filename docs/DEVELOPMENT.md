@@ -5,7 +5,8 @@ build SeedLock and use it, the [README](../README.md) and the [user guide](GUIDE
 
 SeedLock is written in Rust: memory-safe, with secrets wiped from memory, and built into one small program file. Its
 core library, `seedlock-core`, does no input or output of its own (no files, no terminal, no camera), so that it goes
-into phone apps unchanged: the Android app, a preview for now, is built on it (see [The phone app](#the-phone-app-preview)).
+into phone apps unchanged: the Android app, a preview for now, is built on it (see [The phone
+app](#the-phone-app-preview)). The releases have it ready-made, signed with SeedLock's own Android key.
 
 ## Contents
 
@@ -102,7 +103,7 @@ offline computer with the file you built yourself, by its SHA-256 checksum.
 ### The version number
 
 The program takes its version from one place, `version` under `[workspace.package]` in the top `Cargo.toml`. The
-menu's title shows it (`=== SeedLock 0.2.0: offline Bitcoin seed tool ===`), and `seedlock --version` prints it.
+menu's title shows it (`=== SeedLock 0.2.1: offline Bitcoin seed tool ===`), and `seedlock --version` prints it.
 `Cargo.lock` records it too: after changing it, run `cargo build --offline` once without `--locked`, so that
 `Cargo.lock` follows. The README and the guides show it as well; see [Making a release](#making-a-release).
 
@@ -114,14 +115,15 @@ run there.
 
 ## The phone app (preview)
 
-The Android app is in the folder `android`, and [`android/README.md`](../android/README.md) says how to build it, put
-it on a phone and try it. It is a preview, not part of a release yet; its tests on a real phone went well (see
-[Confirmed on real computers](#confirmed-on-real-computers)). It does what the computer does: it opens and makes
-backups (the same files), lays the wallet out for Sparrow, and reads a transaction from Sparrow's animated QR code with
-the camera, shows every address and amount, signs, and shows the signed transaction as an animated QR code. For
-multisig it does what menu 10 does: it lays a seed's key out for a multisig wallet in Sparrow, keeps the multisig
-wallets read from Sparrow's QR code or exported file (as the same `.multisig` files), and signs their payments as one
-of their cosigners.
+The Android app is in the folder `android`, and [`android/README.md`](../android/README.md) says how to install the
+ready-made app, how to build it, and what to try. It is a preview; from 0.2.1 on it is part of the releases, signed
+with SeedLock's own Android key (see [The Android signing key](#the-android-signing-key)). Its tests on a real phone
+went well (see [Confirmed on real computers](#confirmed-on-real-computers)). It does what the computer does: it opens
+and makes backups (the same files), lays the wallet out for Sparrow, and reads a transaction from Sparrow's animated
+QR code with the camera, shows every address and amount, signs, and shows the signed transaction as an animated QR
+code. For multisig it does what menu 10 does: it lays a seed's key out for a multisig wallet in Sparrow, keeps the
+multisig wallets read from Sparrow's QR code or exported file (as the same `.multisig` files), and signs their
+payments as one of their cosigners.
 
 How it is made:
 
@@ -145,25 +147,32 @@ How it is made:
 
 A plain `cargo build` still builds only the command-line program (`default-members` in `Cargo.toml`); the phone crates
 are built with `-p`. `android/build-rust.sh` (on Windows `build-rust.ps1`) builds `libseedlock_ffi.so` with cargo-ndk
-for 64-bit and 32-bit ARM phones and the x86-64 emulator, and writes the Kotlin code; Android Studio then builds the
-app, and only the app (`org.seedlock.app`): the app module has no instrumented tests, so `app/build.gradle.kts`
-switches off the separate test app that Android Studio would build next to it (`org.seedlock.app.test`, which has no
-icon and opens nothing). The library is built with the `phone` profile (in `Cargo.toml`): the release settings, but
-with `panic = "unwind"`, because inside an app a panic (a bug) should become an error the app shows, which UniFFI
-does, rather than close the app at once. Like the release scripts, the script keeps your user name out of the library
-and checks that it did.
+for 64-bit and 32-bit ARM phones and the x86-64 emulator, writes the Kotlin code, and writes the license notices that
+the app shows (**About SeedLock and its licenses**), with `crates/seedlock-tools` (see [Licenses of the
+libraries](#licenses-of-the-libraries)). Android Studio then builds the app, and only the app: the app module has no
+instrumented tests, so `app/build.gradle.kts` switches off the separate test app that Android Studio would build next
+to it (which has no icon and opens nothing). What Android Studio builds is a **test build**, "SeedLock test"
+(`org.seedlock.app.debug`, signed with that computer's own test key), an app of its own beside the released "SeedLock"
+(`org.seedlock.app`, signed with SeedLock's key): Android keeps an app to the key it was first signed with, so trying
+a build never has to touch the released app or its backups. The library is built with the `phone` profile (in
+`Cargo.toml`): the release settings, but with `panic = "unwind"`, because inside an app a panic (a bug) should become
+an error the app shows, which UniFFI does, rather than close the app at once. Like the release scripts, the script
+keeps your user name out of the library and checks that it did.
 
 What keeps the phone offline and the secrets in it: the app has no INTERNET permission, so Android refuses it every
 network connection (the manifest even takes the permission out should a library ask for it); it warns when the phone
 is not in airplane mode; its screens and its dialogs cannot be captured or recorded (`FLAG_SECURE` on each window); a
 seed's words cannot be selected or copied, and a new password reaches the clipboard only when **Copy it** is tapped
-(for a password manager on the same phone), marked as sensitive, and SeedLock empties the clipboard when it is back
-in front if its copy is still there; its text fields allow no keyboard learning or autofill; its files are left out of
+(for a password manager on the same phone), marked as sensitive, and SeedLock empties the clipboard when it is back in
+front if its copy is still there; its text fields allow no keyboard learning or autofill; its files are left out of
 Android's cloud backup and of the copy to a new phone; and leaving the app closes every screen but the first and every
-dialog, and with them any open seed (work that ends meanwhile, such as opening a backup, shows nothing). The one
-exception: for 5 minutes after **Copy it**, the new seed's screen stays open while the password is pasted into the
-password manager. `tools/audit-offline.sh` checks the library, the permissions, the
-app's libraries and its Kotlin code (see [the audit](#supply-chain-and-the-offline-audit)).
+dialog, and with them any open seed (work that ends meanwhile, such as opening a backup, shows nothing). Two
+exceptions, each for at most 5 minutes, are for a password manager on the same phone: after **Copy it**, the new
+seed's screen stays open while the password is pasted into the password manager; and while SeedLock asks for a
+backup's password, when no seed is open yet (only the first screen and a backup's or a multisig wallet's screen are
+under the prompt), the prompt stays while the password is copied from the password manager, and when the prompt
+closes, SeedLock empties the clipboard. `tools/audit-offline.sh` checks the library, the permissions, the app's
+libraries and its Kotlin code (see [the audit](#supply-chain-and-the-offline-audit)).
 
 Two more things to know about the app:
 
@@ -185,11 +194,12 @@ Two more things to know about the app:
 A release is a version of SeedLock that people download exactly as it was tested, from the repository's
 **Releases** page: the ready-made programs (README, Part 1, Way A) and the source code (Way B).
 
-1. **The version.** Set the new one in `Cargo.toml` (`version` under `[workspace.package]`, for example `0.2.1`) and
-   run `cargo build --offline` once without `--locked`, so that `Cargo.lock` follows. Then replace the old number
-   with the new one in `README.md`, `docs/GUIDE.md` and this page (search and replace): the status note, the program
-   and folder names in Part 1, and the menu. `cargo test` fails if one was forgotten (the test
-   `the_readme_and_the_guides_show_this_version`).
+1. **The version.** Set the new one in `Cargo.toml` (`version` under `[workspace.package]`, for example `0.2.2`) and
+   run `cargo build --offline` once without `--locked`, so that `Cargo.lock` follows. Then replace the old number with
+   the new one in `README.md`, `docs/GUIDE.md`, this page and `android/README.md` (search and replace) where they name
+   the current version: the status note, the program and folder names in Part 1, the menu and the phone app's file
+   name. Where a text says from which version on something is so, its number stays. `cargo test` fails if one was
+   forgotten (the test `the_readme_and_the_guides_show_this_version`).
 2. **Check everything:** `cargo test --workspace --locked`, the three test scripts, `sh tools/audit-offline.sh` (see
    [Re-running the tests](#re-running-the-tests)), and a build with Rust 1.85, the oldest version SeedLock supports.
 3. **Put the files on GitHub,** on the `main` branch. In the web interface: open the folder a changed file belongs
@@ -227,11 +237,29 @@ A release is a version of SeedLock that people download exactly as it was tested
    in place of the home folder (`--remap-path-prefix`; on Windows it is added to the setting in `.cargo/config.toml`,
    which stays in force), then check that the program no longer contains the home folder's path, and stop with a
    message if it does. So build release programs with the scripts, never with `cargo build` alone.
+
+   **And the phone app,** on the computer with Android Studio and SeedLock's Android key, in that downloaded folder
+   too (android/README.md, Building it yourself, says what it needs):
+
+   1. Build the Rust part: `sh android/build-rust.sh` (Windows: `powershell -ExecutionPolicy Bypass -File
+      android\build-rust.ps1`).
+   2. In Android Studio, open the folder `android` of that downloaded folder. Then **Build > Generate Signed App
+      Bundle or APK** (in older versions: **Generate Signed Bundle / APK**), choose **APK** and click **Next**. Choose
+      SeedLock's key store (**Choose existing...**: the file of [The Android signing key](#the-android-signing-key)),
+      type its password, choose the key `seedlock` and type its password, leave **Remember passwords** off; **Next**.
+      Choose **release** and click **Create** (or **Finish**). When it is done, a message links to the APK:
+      `android/app/release/app-release.apk`.
+   3. Check it, in a terminal in that folder: `cargo run --locked -p seedlock-tools -- check-apk
+      android/app/release/app-release.apk`. It lists what it checked (the version, a release build that cannot be
+      debugged, the permissions, the libraries and the code in it, its license notices, no user name inside, and the
+      key it is signed with), puts it into `dist` as `seedlock-X.Y.Z-android.apk` and prints its SHA-256: write that
+      down too. If something is wrong, it says what, and nothing goes into `dist`.
 5. **Try each program** on its system: it starts, shows the version in the menu's title, and opens a backup. Best on
    a computer where Rust was never installed, as the users' computers are. On Linux, the three test scripts also take
-   the ready-made program: give its path instead of `target/release/seedlock`.
-6. **The checksum list.** Bring the three programs to one Linux or Mac computer (a USB stick is fine), into one
-   folder, and check that each one still has the SHA-256 written down in step 4. Then, in that folder:
+   the ready-made program: give its path instead of `target/release/seedlock`. Install the phone app on a phone as
+   android/README.md (Installing the ready-made app) says, and open a backup with it.
+6. **The checksum list.** Bring the three programs and the phone app to one Linux or Mac computer (a USB stick is
+   fine), into one folder, and check that each one still has the SHA-256 written down in step 4. Then, in that folder:
 
    ```sh
    sha256sum seedlock-X.Y.Z-* > SHA256SUMS.txt       # on a Mac: shasum -a 256 seedlock-X.Y.Z-* > SHA256SUMS.txt
@@ -244,10 +272,11 @@ A release is a version of SeedLock that people download exactly as it was tested
 
 7. **Create the release.** On the repository's main page, click **Releases** on the right, then **Draft a new
    release** (before the first release, the link is called **Create a new release**). Open **Choose a tag**, type
-   the version with a `v` in front (for example `v0.2.1`) and click **Create new tag**; **Target**: `main`.
+   the version with a `v` in front (for example `v0.2.2`) and click **Create new tag**; **Target**: `main`.
    **Release title**: `SeedLock` and the version. In **Describe this release**, say what changed, and that SeedLock
-   is not independently audited. Drag the three programs, `SHA256SUMS.txt` and `SHA256SUMS.txt.asc` into the box for
-   binaries below it, and wait until all of them are listed. Leave **This is a pre-release** off and **Set as latest
+   is not independently audited. Drag the three programs, the phone app (`seedlock-X.Y.Z-android.apk`),
+   `SHA256SUMS.txt` and `SHA256SUMS.txt.asc` into the box for binaries below it, and wait until all of them are
+   listed. Leave **This is a pre-release** off and **Set as latest
    release** on, so that this release is the newest one, and click **Publish release** (or **Save draft**, to finish
    later). GitHub adds the source code of the tag by itself, as **Source code (zip)** and **Source code (tar.gz)**.
 
@@ -320,6 +349,48 @@ If the key ever has to be replaced, make a new one the same way:
    The second line copies the revocation certificate that GnuPG made with the key: if the key is ever lost or
    stolen, it lets you tell everyone not to trust it any more.
 
+### The Android signing key
+
+Android installs only signed apps, and it installs an update only when the update is signed with the same key as the
+app that is there. So the phone app of every release is signed with SeedLock's own Android key, made once and kept
+like the release key:
+
+* if it is **lost**, no update can ever be installed over the app: everyone would have to uninstall it, which deletes
+  the backups on their phone, and install the app again;
+* if it is **stolen**, someone could sign an app that Android takes as an update of SeedLock's. People would still
+  have to install it themselves, and the signed checksum list shows which file is SeedLock's.
+
+It is not the release key that signs the checksum lists: Android uses keys of its own kind.
+
+**Making it** (once), in Android Studio, with SeedLock's `android` folder open:
+
+1. **Build > Generate Signed App Bundle or APK** (in older versions: **Generate Signed Bundle / APK**), choose
+   **APK**, click **Next**, then **Create new...** below the key store path.
+2. **Key store path:** a folder outside SeedLock's folder (your home folder, for example), and the file name
+   `seedlock-android.jks`. Never put it in SeedLock's folder, from where it could end up uploaded with the other
+   files: `.gitignore` leaves out `*.jks` files, but GitHub's upload page does not read `.gitignore`.
+3. **Password:** a strong one from your password manager, twice. **Alias:** `seedlock`. The key's own **Password:**
+   the same one again. **Validity (years):** 50.
+4. **Certificate:** in **First and Last Name**, type `SeedLock releases`, and leave the other fields empty. What you
+   type here is inside every copy of the app, for everyone to read: never your own name.
+5. Click **OK**: the key store is made. Then go on as [Making a release](#making-a-release) says, or close the window.
+
+**Keeping it:** copy `seedlock-android.jks` onto the encrypted USB stick that keeps the release key's secret copy,
+and keep its password in your password manager. With those two, any computer with Android Studio can sign the next
+release.
+
+**Its fingerprint:** the SHA-256 fingerprint of its certificate is published in
+[`android/README.md`](../android/README.md) (Installing the ready-made app) and written into
+`crates/seedlock-tools/src/apk.rs` (`RELEASE_CERTIFICATE`), so that `check-apk` refuses an APK signed with any other
+key:
+
+```
+02:27:2A:CC:06:84:2D:36:3A:19:A6:CF:48:3D:D9:28:5F:CB:CA:C5:38:AB:98:24:51:14:35:2A:B9:68:63:44
+```
+
+`seedlock-tools check-apk` shows it, and so does `keytool -list -v -keystore seedlock-android.jks` (the line
+`SHA256:`; keytool comes with Android Studio, in its folder `jbr/bin`).
+
 ## Supply chain and the offline audit
 
 `Cargo.lock` is included and pins every library: 82 crates in the program's dependency tree, none of which can use
@@ -340,7 +411,10 @@ you build. There is no telemetry and no network code: the online check only read
 6. the phone app: checks 2 to 4 cover its Rust code too; its library has no networking crate either, on every system
    (Android's included, whatever computer runs the audit), and its licenses are checked like the program's; its
    manifest asks Android only for the camera and the network state (to warn when the phone is online) and takes
-   INTERNET out; JNA is its only other library; and its Kotlin code uses no network API.
+   INTERNET out; JNA is its only other library; and its Kotlin code uses no network API;
+7. the build helper `crates/seedlock-tools` (the app's license notices, the check of a release APK), which runs on the
+   computer that builds the app and is never part of SeedLock: no networking crate in its tree either, and the only
+   program it starts is cargo (`cargo tree` and `cargo metadata`, for the notices).
 
 It prints every `unsafe` line and every place a program is started, so they can be read in one go. Run it after every
 dependency update. It needs Cargo; if Cargo cannot run, it says FAIL, never OK.
@@ -368,11 +442,24 @@ The phone app brings a few more:
 
 * **UniFFI** (its six crates `uniffi`, `uniffi_core`, `uniffi_macros` and so on) is under the Mozilla Public License
   2.0 (MPL-2.0), a weak copyleft that applies file by file: it covers UniFFI's own files, not SeedLock's, which stay
-  MIT. When the app is published as a ready-made APK, its notices must say where UniFFI's source code can be had
-  (unchanged, on crates.io and GitHub); the Kotlin code that `uniffi-bindgen` writes comes from UniFFI's templates, so
-  treat it the same way. The audit allows MPL-2.0 for UniFFI's own crates and for nothing else.
+  MIT. A ready-made APK must say where UniFFI's source code can be had (unchanged, on crates.io and GitHub); the
+  Kotlin code that `uniffi-bindgen` writes comes from UniFFI's templates, so it is treated the same way. The audit
+  allows MPL-2.0 for UniFFI's own crates and for nothing else.
 * **JNA**, which the app uses to call the Rust library, may be used under Apache-2.0 or LGPL-2.1, as one prefers:
-  SeedLock takes Apache-2.0. The Kotlin standard library inside the app is Apache-2.0.
+  SeedLock takes Apache-2.0. Its native library contains libffi (MIT). The Kotlin standard library inside the app,
+  and the JetBrains annotations it uses, are Apache-2.0.
+
+**The app carries the notices** of all its libraries: **About SeedLock and its licenses**, on its first screen, shows
+them. `crates/seedlock-tools` writes them (`seedlock-tools notices --android`, run by `android/build-rust.sh` into
+`android/app/src/main/assets/notices.txt`) from exactly the libraries the phone library is built with: the crates
+`cargo tree` finds for the three kinds of phone processor (without those that only help to build it, but with the
+macro crates whose generated code is in it), each with the license it is used under (of the ones it offers, the one
+that asks the least), its copyright lines from its own license file, and the license texts: the MIT text once with
+every library's copyright lines, the Apache 2.0 and MPL 2.0 texts once, other licenses in full (BSD, ISC, Zlib,
+BlueOak, MITNFA), and code inside a crate under a license of its own (the C library libsecp256k1, MIT, inside
+`secp256k1-sys`); then Rust's standard library, and the Java part (JNA with libffi, Kotlin's standard library, the
+annotations), whose versions it reads from the Gradle files. `check-apk` refuses a release APK whose notices are not
+this version's, or whose code is from any other library than those.
 * A library that lets you choose between a permissive and a copyleft license is taken under the permissive one; the
   audit accepts it for that reason. So far there is one, `r-efi` (MIT, Apache-2.0 or LGPL), which is only used when
   building for UEFI firmware and never reaches a phone or a computer program.
@@ -381,7 +468,7 @@ The phone app brings a few more:
 
 ### Automated tests
 
-**156 automated tests** (`cargo test --workspace --locked`):
+**165 automated tests** (`cargo test --workspace --locked`):
 
 * **71 for the core library:** backup tamper detection on every bit; a backup's QR code with its name line, still
   read as the backup exactly the way earlier versions read it; BIP39/32/44/49/84/86 test vectors; BIP380 descriptor
@@ -410,18 +497,29 @@ The phone app brings a few more:
   macOS `route` output and Windows `route print` output in English and Spanish; a virtual machine recognised from its
   firmware description (and real computers not); Windows registry values; a scanned backup matched to its file; and
   which files of an earlier version go into the cosigner keys folder.
-* **29 end-to-end tests of the real program:** among them `sign --scan` through a stand-in ffmpeg; signing without
+* **30 end-to-end tests of the real program:** among them `sign --scan` through a stand-in ffmpeg; signing without
   `--network` (a test-network transaction is recognised and shown with testnet addresses, a mainnet one is called real
   bitcoin, `--network` still wins, and a transaction with no key paths gets a clear error instead of a guess); a
   registered 2-of-3 wallet signed by two cosigners in turn, refused when unregistered, with the files an earlier
   version kept next to the backups moved into their folders first; the backup's QR picture (menu 8) read back as the
   backup line with the backup's name on a line of its own, and as the same backup, while a pasted backup line, which
-  has no name, still gives the line alone; menu 5's QR picture read back as exactly the UR crypto-output that names
-  the keystore after the backup, also written in the saved text file, with the descriptor to paste still shown; a
-  backup scanned from a named QR code, through a stand-in ffmpeg, giving its name to the files made from it and to
-  the keystore; the version in the menu's title, above the menu, and from `--version`; the same version everywhere
-  the README and the guides give it; and the same release key fingerprint everywhere they give it, which is also the
-  fingerprint of the key in `docs/release-key.asc`.
+  has no name, still gives the line alone; a new backup's QR code (`--qr`, as menus 1 and 2 show it) saved as that
+  picture too, and where it is said before the code is shown, in menu 8 as well; menu 5's QR picture read back as
+  exactly the UR crypto-output that names the keystore after the backup, also written in the saved text file, with the
+  descriptor to paste still shown; a backup scanned from a named QR code, through a stand-in ffmpeg, giving its name
+  to the files made from it and to the keystore; the version in the menu's title, above the menu, and from
+  `--version`; the same version everywhere the README and the guides give it; and the same release key fingerprint
+  everywhere they give it, which is also the fingerprint of the key in `docs/release-key.asc`.
+* **8 for the build helper** (`seedlock-tools`): license expressions read ("(MIT OR Apache-2.0) AND ISC", the old
+  "MIT/Apache-2.0"), and of their choices the license that asks the least taken (MIT before others that ask as
+  little); license texts recognised by their wording (and a file that only names licenses not taken for one); an MIT
+  text split into its copyright lines and the usual text, also libffi's, with its old quotes, while one with an extra
+  condition is kept in full; texts reflowed into paragraphs for the phone; a right release APK passing, its
+  certificate read (APK Signature Scheme v3 and v2, manifests with UTF-16 and UTF-8 strings); every mistake found (a
+  build that can be debugged, the test build, another version, the INTERNET permission, a missing library or one for
+  another processor, code of another library, no notices or another version's, the home folder's path inside,
+  Android Studio's test key, no v2 or v3 signature, not an APK at all); the version codes build.gradle.kts gives; and
+  the fingerprint of SeedLock's Android certificate the same in the check and in the documents that give it.
 * **6 for the QR crate** (`seedlock-qr`, which both programs read QR codes with): soft and noisy camera pictures; dense
   codes photographed on a screen (its pixel pattern, glare, soft focus) that only the light-evening tries read; a code
   in view that cannot be read, and a dense one too damaged to read, both noticed as such; where a code is, also in a
@@ -460,24 +558,27 @@ All re-runnable, see `tools/`:
 ### The interactive experience
 
 `tools/interactive_test.py` drives the real program in a pseudo-terminal: hidden input; the quiz; the generated
-password; the menu and its wording; the backups folder and the name prompt (including a taken name); choosing a
-backup by number, by name and by dropping the file (as Linux terminals, Apple's Terminal and `file://` addresses paste
-it); the online warning before the menu (a boxed warning naming the connection, then a reminder; offline said once; an
+password; the menu and its wording; the backups folder and the name prompt (including a taken name); choosing a backup
+by number, by name and by dropping the file (as Linux terminals, Apple's Terminal and `file://` addresses paste it);
+the online warning before the menu (a boxed warning naming the connection, then a reminder; offline said once; an
 unreadable routing table said plainly; the virtual machine warning); the live dice counter (it moves with every key; a
 non-die, Backspace, an arrow key, changing the last roll); Ctrl+C at a hidden prompt, after which the terminal shows
 what you type again; that no `--force` text appears anywhere; that typed secrets are never echoed; a window that is
-too small; the QR code drawn in the terminal (captured from an emulated screen, decoded with OpenCV and reassembled by
-Foundation Devices' reference UR library into exactly the signed PSBT, using the fixed, theme-proof colour codes and
-wrapped in synchronized output); and Apple's Terminal (with `TERM_PROGRAM` set the way that app sets it): the boxed
-note, then every frame of the animated code, the static code and a backup's code in the full style, read back from the
-raw output (no block characters; every square two spaces of one colour), decoded, and reassembled into exactly the
-signed PSBT or the backup text and its name line; with it unset, the compact style and no note.
+too small; a new backup shown as a QR code (menu 2), saved as a picture next to it first, where it is said before the
+code is drawn, and the picture read back as the backup and its name; the QR code drawn in the terminal (captured from
+an emulated screen, decoded with OpenCV and reassembled by Foundation Devices' reference UR library into exactly the
+signed PSBT, using the fixed, theme-proof colour codes and wrapped in synchronized output); and Apple's Terminal (with
+`TERM_PROGRAM` set the way that app sets it): the boxed note, then every frame of the animated code, the static code
+and a backup's code in the full style, read back from the raw output (no block characters; every square two spaces of
+one colour), decoded, and reassembled into exactly the signed PSBT or the backup text and its name line; with it
+unset, the compact style and no note.
 
 ### The QR and camera flows
 
 `tools/qr_flow_test.py` tests them end to end with independent tools:
 
-* menu 8's PNG is read back by OpenCV and equals the backup text followed by its name line;
+* menu 8's PNG is read back by OpenCV and equals the backup text followed by its name line; where it is saved is said
+  before the code is drawn, and again in the offer to copy it;
 * menu 6's explanations, file list, wrong-path handling and the network found by itself are driven in a
   pseudo-terminal;
 * a backup is read from its QR code, with its name line, through the **real ffmpeg** (a soft, noisy, compressed video
@@ -498,8 +599,9 @@ signed PSBT or the backup text and its name line; with it unset, the compact sty
   and the window closes when the scan is done;
 * the QR window is also the **real ffplay** on a virtual X screen: a film of the screen is decoded picture by picture,
   the parts come in order and are reassembled by the Foundation UR library into exactly the signed PSBT, a backup's
-  code reads back as exactly the backup text and its name line, typing `t` switches to the terminal, Enter closes the
-  window, and without a screen or without ffplay SeedLock says why and draws the code in the terminal.
+  code reads back as exactly the backup text and its name line (where its picture is saved said before the window
+  opens), typing `t` switches to the terminal, Enter closes the window, and without a screen or without ffplay
+  SeedLock says why and draws the code in the terminal.
 
 The QR reader was chosen by measurement on simulated webcam pictures (108 pictures with blur, noise, tilt and small
 size): trying each picture as it is reads 50% of them; trying it also enlarged, sharpened and reduced reads 75%
@@ -561,7 +663,16 @@ checked on a computer:
 * The library type-checks for all three kinds of phone processor (64-bit ARM, 32-bit ARM and x86-64), with Rust's
   standard library built for Android.
 * `android/build-rust.sh` and `build-rust.ps1` were run with stand-ins for rustup, cargo and cargo-ndk: their steps,
-  the user name kept out of the library, and a library that still holds it refused.
+  the user name kept out of the library, and a library that still holds it refused. `build-rust.sh` was run again
+  with the real cargo (only rustup and cargo-ndk stand-ins): it builds the helper and writes the license notices.
+* The check of a release APK (`seedlock-tools check-apk`), on APKs made with Android's own tools: the manifest and
+  the resources linked by aapt2, the code turned into DEX by dx (the app's, Kotlin's standard library, JNA's AAR and
+  the annotations: 1390 classes), JNA's real native libraries, zipalign, and apksigner signing with APK Signature
+  Schemes v2 and v3. A right one passes, with the certificate fingerprint that apksigner and keytool show; with the
+  fingerprint written in, it is copied into `dist` with its SHA-256, a second run finds it there, another file of
+  that name is never replaced, and an APK signed with another key (also an EC key) is refused. A build that can be
+  debugged, the test build's id, Android Studio's test key, only an old v1 signature, the INTERNET permission, and no
+  notices with the home folder's path in a library are each refused, saying why.
 
 ### Confirmed on real computers
 
@@ -594,6 +705,19 @@ By SeedLock's users:
   saying where a file went, each backup's fingerprint beside its name and the multisig wallet's screen naming its
   cosigners among the backups, the review and the signed payment saying how many signatures it has and needs, and a
   multisig wallet registered on the computer whose payments the backups on the phone sign.
+* **Version 0.2.0**, on the users' Linux, macOS and Windows computers: the version in the menu's title; menu 8's QR
+  code, which carries the backup's name, scanned by the phone, which suggested that name; the phone's QR code of a
+  backup that is not on the computer, scanned in menu 5, whose name SeedLock then used; menu 5's QR code imported
+  into Sparrow (**File > Import Wallet > Output Descriptor > Scan...**), which showed the same first addresses and
+  named the keystore after the backup; and Sparrow's animated code scanned in menu 6 and the camera test (menu 9),
+  with the QR reader now shared with the phone app.
+* **Version 0.2.1:** SeedLock's Android key, made with Android Studio's wizard ([The Android signing
+  key](#the-android-signing-key)), and the release APK that the wizard built and signed with it (APK Signature Scheme
+  v2), which `check-apk` passed: the app and its version, a release build, its permissions, its native libraries, its
+  code (all from the libraries its notices name), its license notices, no home folder's path, and the certificate's
+  fingerprint. On the Xiaomi Mi 8, that ready-made app installed in place of a SeedLock built before 0.2.1 (the
+  backups and multisig wallets saved as files, the old app uninstalled, then added again), a testnet payment signed
+  with it, the screen **About SeedLock and its licenses**, and a test build installed beside it as "SeedLock test".
 * Also confirmed: reading a backup from its QR code; the online warning on Linux; and multisig with Sparrow (2 of 3,
   native SegWit): the keys typed in or scanned by Sparrow's xpub button, the wallet's descriptor from a file, from an
   animated UR code and from static BBQr codes at two densities (in good light), and its transactions signed by one
@@ -608,16 +732,16 @@ You should know these:
 2. On Windows, the camera (ffmpeg's `dshow` options) and starting the browser with `explorer`; on macOS, the camera's
    preview window and starting the browser with `open`: written and tested here where possible, not yet reported on.
 3. The optional web page (`--qr-browser`) has not been looked at in a real browser since its animation was fixed.
-4. Menu 5's layout and its QR code for Sparrow, which since 0.2.0 is a UR crypto-output that names the keystore (the
-   phone app's code, which Sparrow read, is made by the same code); menu 8's QR code with the backup's name (0.2.0),
-   scanned by the phone and by the computer; the keystore named after a backup read from its QR code (menu 10, 1);
-   the macOS online check (`route`) and virtual machine check (`sysctl`).
+4. The keystore named after a backup read from its QR code in menu 10, 1 (in menu 5 it was confirmed); the macOS
+   online check (`route`) and virtual machine check (`sysctl`).
 5. Nested and legacy multisig, and one large static UR code: checked here only (with urtypes and embit, and with
    photos of Sparrow's exact codes on a screen).
 6. The phone app (a preview), on a real phone: adding a backup or a multisig wallet from its file (the same file
    picker as a transaction's file, which works), nested and legacy multisig wallets, and other phones and Android
    versions than the Xiaomi Mi 8 with Android 10; see
    [The phone app, checked on a computer](#the-phone-app-checked-on-a-computer).
+7. The phone app's prompt for a backup's password that stays while the password is copied from a password manager on
+   the phone (at most 5 minutes), and the clipboard emptied afterwards: added in 0.2.1 after the tests above.
 
 Menu 9 and `seedlock camera` let anyone check their own camera setup.
 
@@ -751,6 +875,7 @@ crates/seedlock-cli       the `seedlock` program: prompts, menu, files, QR pictu
 crates/seedlock-qr        reading QR codes in camera pictures, and making QR codes (no I/O; used by both programs)
 crates/seedlock-ffi       the phone app's library: what the app calls, made callable from Kotlin by UniFFI
 crates/uniffi-bindgen     writes the Kotlin code that calls seedlock-ffi (run by android/build-rust.sh)
+crates/seedlock-tools     the build helper: the phone app's license notices, and the check of a release APK (never in SeedLock)
 android/                  the Android app (preview): its README, build-rust.sh and .ps1, the app, jvm-check/
 docs/GUIDE.md             the user guide
 docs/DEVELOPMENT.md       this page
@@ -774,11 +899,12 @@ PSBT comes in as a file or by camera (animated `ur:crypto-psbt`, BBQr, or a plai
 signed one leaves as a file or as an animated QR code; a command-line program, and an Android app in preview.
 
 **Phone.** The Android app is a preview (see [The phone app](#the-phone-app-preview)): backups, the wallet for
-Sparrow, signing with the camera, and multisig (cosigner keys, multisig wallets, signing as a cosigner). Next steps:
-more tests on real phones; sign the app with SeedLock's own key and add it to the releases, with its checksum in the
-signed list; an iPhone app from the same library (UniFFI writes Swift as well). The phone and the command-line program
-write the same backups and the same QR codes (the backup's name in its QR code, the wallet for Sparrow as a QR code
-that names the keystore), so either one opens what the other made (use `--kdf light` for very old phones).
+Sparrow, signing with the camera, and multisig (cosigner keys, multisig wallets, signing as a cosigner). From 0.2.1 on
+it is in the releases, signed with SeedLock's own Android key, with its checksum in the signed list. Next steps: more
+tests on real phones; an iPhone app from the same library (UniFFI writes Swift as well). The phone and the
+command-line program write the same backups and the same QR codes (the backup's name in its QR code, the wallet for
+Sparrow as a QR code that names the keystore), so either one opens what the other made (use `--kdf light` for very old
+phones).
 
 **Reproducible builds.** Today a program that a user builds is not byte for byte the same file as a release's
 ready-made program (file paths and the compiler versions are recorded in it). Building the release programs in a fixed

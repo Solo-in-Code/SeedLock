@@ -13,7 +13,9 @@ import org.seedlock.ffi.backupInfo
  * BIP39 passphrase, and which), opens the backup on the background thread and hands over the seed and
  * the passphrase's bytes (empty when none). A wrong password asks again. Whoever receives the seed
  * closes it, and wipes the passphrase's bytes. The backup's wallet fingerprint (without a passphrase) is
- * remembered, to show it beside the backup's name from then on.
+ * remembered, to show it beside the backup's name from then on. While the prompt is open, SeedLock may be
+ * left for a few minutes to copy the password from a password manager on this phone (see
+ * [MainActivity.promptsForPassword]).
  */
 fun unlock(app: MainActivity, name: String, text: String, withPassphrase: Boolean, then: (Seed, ByteArray) -> Unit) {
     val info = try {
@@ -32,7 +34,11 @@ fun unlock(app: MainActivity, name: String, text: String, withPassphrase: Boolea
         passphrase.visibility = View.GONE
         uses.setOnCheckedChangeListener { _, checked -> passphrase.visibility = if (checked) View.VISIBLE else View.GONE }
     }
-    app.showSecure(AlertDialog.Builder(app)
+    page.small(
+        "With a password manager on this phone: copy the password there and come back within " +
+            "${MainActivity.KEEP_OPEN_MS / 60_000} minutes to paste it here. SeedLock empties the clipboard afterwards."
+    )
+    val dialog = app.showSecure(AlertDialog.Builder(app)
         .setTitle("Open the backup")
         .setView(page.view)
         .setPositiveButton("Open") { _, _ ->
@@ -74,4 +80,8 @@ fun unlock(app: MainActivity, name: String, text: String, withPassphrase: Boolea
             password.text.clear()
             passphrase?.text?.clear()
         })
+    app.promptsForPassword(dialog) {
+        password.text.clear()
+        passphrase?.text?.clear()
+    }
 }

@@ -64,6 +64,7 @@ class HomeScreen(app: MainActivity) : Screen(app) {
             "SeedLock ${seedlockVersion()}, phone app preview. It is not independently audited: try it with a " +
                 "test wallet or a small amount first."
         )
+        page.button("About SeedLock and its licenses") { app.open(AboutScreen(app)) }
         return page.view
     }
 
@@ -97,7 +98,8 @@ fun addBackup(app: MainActivity, text: String, suggestedName: String?) {
             app.say(
                 "Backup added",
                 "The backup \"$name\" is on this phone now. It opens with its password (that takes " +
-                    "${info.memoryMib} MiB of memory and a few seconds)."
+                    "${info.memoryMib} MiB of memory and a few seconds). Its wallet fingerprint shows beside its " +
+                    "name once it was opened here: the backup is encrypted, so only its password tells which wallet it is."
             )
         } catch (e: Exception) {
             app.say("Not saved", e.toUserText())

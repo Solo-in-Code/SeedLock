@@ -340,6 +340,13 @@ fn show_qr(text: &str) -> Res<()> {
     Ok(())
 }
 
+/// Says where a backup's QR code was saved as a picture. It is said before the code is shown, so that it is
+/// on the screen while the code is (in its window, or drawn here after `t`), whichever way that ends.
+fn say_picture_saved(picture: &Path) {
+    eprintln!("\nThe QR code is saved as a picture too, next to your backups:\n  {}", full_path(picture).display());
+    eprintln!("You can print that picture, or open it on your phone or computer.");
+}
+
 /// Save the QR code of a backup as a picture (PNG) in the backups folder, next to the
 /// backup itself. Never overwrites: if the same picture is already there it is kept as is.
 fn save_backup_qr_picture(name: &str, text: &str) -> Res<PathBuf> {
@@ -450,7 +457,11 @@ fn finish_backup(m: &Mnemonic, save: &SaveOpts) -> Res<()> {
     if want_qr {
         // the code carries the backup's name, which the phone or computer that scans it suggests
         let name = path.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default();
-        show_qr(&backup::qr_text(&backup::to_text(&container), &name)?)?;
+        let code = backup::qr_text(&backup::to_text(&container), &name)?;
+        // kept as a picture too, as menu 8 does, and said before the code is shown
+        let picture = save_backup_qr_picture(if name.is_empty() { SCRIPT_DEFAULT_NAME } else { &name }, &code)?;
+        say_picture_saved(&picture);
+        show_qr(&code)?;
     }
     Ok(())
 }
@@ -1184,10 +1195,12 @@ pub fn qr(args: QrArgs) -> Res<()> {
 /// Copy a saved picture into a folder the person chooses (a USB stick, for example). An existing
 /// file there is never replaced.
 fn offer_copy(file: &Path) -> Res<()> {
+    // named again: a QR code drawn in the terminal may have pushed the message about the picture out of sight
+    let shown = file.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
     loop {
-        let typed = clean_path(&ui::read_line(
-            "\nSave a copy somewhere else too, for example on a USB stick? Type or drop a folder, or press Enter to skip: ",
-        )?);
+        let typed = clean_path(&ui::read_line(&format!(
+            "\nSave a copy of {shown} somewhere else too, for example on a USB stick? Type or drop a folder, or press Enter to skip: "
+        ))?);
         if typed.is_empty() {
             return Ok(());
         }
@@ -1221,10 +1234,9 @@ fn qr_backup(args: QrArgs, ask_for_copy: bool) -> Res<()> {
     };
     let code = backup::qr_text(&text, carried.as_deref().unwrap_or(""))?;
     let name = carried.clone().unwrap_or_else(|| SCRIPT_DEFAULT_NAME.to_string());
-    show_qr(&code)?;
     let picture = save_backup_qr_picture(&name, &code)?;
-    eprintln!("The QR code was also saved as a picture, next to your backups:\n  {}", full_path(&picture).display());
-    eprintln!("You can print that picture, or open it on your phone or computer.");
+    say_picture_saved(&picture);
+    show_qr(&code)?;
     if ask_for_copy && ui::interactive() {
         offer_copy(&picture)?;
     }
@@ -1865,10 +1877,7 @@ fn multisig_share_key() -> Res<()> {
     print!("\n{t}");
     let _ = std::io::Write::flush(&mut std::io::stdout());
     let code = multisig::cosigner_account_ur(wallet.fingerprint(), &path, &xpub, script, &label);
-    if ui::can_animate() && ui::confirm("\nShow this seed's key as a QR code for Sparrow to scan?", true)? {
-        let how = "In Sparrow, in this seed's keystore (Watch Only Wallet), click the camera button next to the xpub field and scan this code.";
-        show_text_qr("SeedLock - cosigner key for Sparrow", &code, how)?;
-    }
+    // saved before the QR code is offered, so that where they are is said whatever happens next
     let dir = ensure_private_folder(backup_folder()?.join(COSIGNER_FOLDER))?;
     let text_file = unused_path(&dir, &format!("{name}-cosigner"), "txt");
     write_new_file(&text_file, format!("{t}\nAs a QR code (UR crypto-account):\n  {code}\n").as_bytes())?;
@@ -1876,6 +1885,10 @@ fn multisig_share_key() -> Res<()> {
     write_new_file(&picture, &qrimg::png(&QrCode::with_error_correction_level(code.as_bytes(), EcLevel::M)?, 8))?;
     eprintln!("\nSaved in the \"{COSIGNER_FOLDER}\" folder of your backups (no secrets, but they show this seed's multisig key):");
     eprintln!("  {}\n  {}", full_path(&text_file).display(), full_path(&picture).display());
+    if ui::can_animate() && ui::confirm("\nShow this seed's key as a QR code for Sparrow to scan?", true)? {
+        let how = "In Sparrow, in this seed's keystore (Watch Only Wallet), click the camera button next to the xpub field and scan this code.";
+        show_text_qr("SeedLock - cosigner key for Sparrow", &code, how)?;
+    }
     Ok(())
 }
 
@@ -2108,9 +2121,7 @@ fn wallet_for_sparrow(wallet: &Wallet, script: ScriptType, network: NetworkArg, 
     }
     print!("\n{t}");
     let _ = std::io::Write::flush(&mut std::io::stdout());
-    if ui::can_animate() && ui::confirm("\nShow the wallet as a QR code for Sparrow to scan?", true)? {
-        show_wallet_qr(&code)?;
-    }
+    // saved before the QR code is offered, so that where they are is said whatever happens next
     let dir = ensure_backup_folder()?;
     let text_file = unused_path(&dir, &format!("{name}-for-sparrow"), "txt");
     write_new_file(&text_file, format!("{t}\nAs a QR code (UR crypto-output):\n  {code}\n").as_bytes())?;
@@ -2119,6 +2130,9 @@ fn wallet_for_sparrow(wallet: &Wallet, script: ScriptType, network: NetworkArg, 
     write_new_file(&picture_file, &qrimg::png(&picture, 8))?;
     eprintln!("\nSaved next to your backups. They hold no secrets, but anyone who reads them can see all your addresses:");
     eprintln!("  {}\n  {}", full_path(&text_file).display(), full_path(&picture_file).display());
+    if ui::can_animate() && ui::confirm("\nShow the wallet as a QR code for Sparrow to scan?", true)? {
+        show_wallet_qr(&code)?;
+    }
     Ok(())
 }
 

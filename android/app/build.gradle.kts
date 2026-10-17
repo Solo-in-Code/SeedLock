@@ -27,12 +27,27 @@ android {
         versionName = seedlockVersion
         // 64-bit phones, older 32-bit phones, and the emulator on a PC
         ndk { abiFilters += listOf("arm64-v8a", "armeabi-v7a", "x86_64") }
+        // the app's name under its icon (AndroidManifest.xml); a test build is named otherwise, below
+        manifestPlaceholders["appLabel"] = "SeedLock"
     }
 
     buildTypes {
+        // A test build (what Android Studio's Run and Generate APK(s) make) is another app beside the
+        // released one: "SeedLock test", org.seedlock.app.debug, with storage of its own. Trying a build never
+        // touches the released app or its backups, and Android, which keeps an app to the key it was first
+        // signed with, never has to choose between Android Studio's test key and SeedLock's own.
+        debug {
+            applicationIdSuffix = ".debug"
+            versionNameSuffix = "-test"
+            manifestPlaceholders["appLabel"] = "SeedLock test"
+        }
+        // The release: signed with SeedLock's own key (Build > Generate Signed App Bundle or APK) and checked
+        // with seedlock-tools check-apk (docs/DEVELOPMENT.md, Making a release).
         release {
             // no shrinking or renaming: the app stays exactly as its source reads
             isMinifyEnabled = false
+            // never a release that can be debugged (Android's default for a release, said here on purpose)
+            isDebuggable = false
         }
     }
 
@@ -44,12 +59,19 @@ android {
     kotlinOptions {
         jvmTarget = "17"
     }
+
+    lint {
+        // A release build stops when the targetSdk is lower than the one Google Play asks of the apps it publishes
+        // (ExpiredTargetSdkVersion). SeedLock's app is not on Google Play, and its targetSdk of 34 is on purpose
+        // (above). Every other problem that Android's checks count as fatal still stops a release build.
+        disable += "ExpiredTargetSdkVersion"
+    }
 }
 
-// Only the app itself is ever built, org.seedlock.app (app-debug.apk). The app has no instrumented tests
-// of its own (SeedLock's tests are in Rust, and in android/jvm-check), so the separate test app that
-// Android Studio would otherwise build too (org.seedlock.app.test, app-debug-androidTest.apk: no icon,
-// nothing to open) is switched off, and cannot be installed by mistake.
+// Only the app itself is ever built (app-debug.apk, org.seedlock.app.debug; app-release.apk, org.seedlock.app).
+// The app has no instrumented tests of its own (SeedLock's tests are in Rust, and in android/jvm-check), so
+// the separate test app that Android Studio would otherwise build too (org.seedlock.app.debug.test,
+// app-debug-androidTest.apk: no icon, nothing to open) is switched off, and cannot be installed by mistake.
 androidComponents {
     // (the test app is only ever made for the debug build, Android's "test build type")
     beforeVariants(selector().withBuildType("debug")) { variant ->

@@ -1,12 +1,12 @@
 [workspace]
 resolver = "2"
-members = ["crates/seedlock-core", "crates/seedlock-cli", "crates/seedlock-qr", "crates/seedlock-ffi", "crates/uniffi-bindgen"]
+members = ["crates/seedlock-core", "crates/seedlock-cli", "crates/seedlock-qr", "crates/seedlock-ffi", "crates/uniffi-bindgen", "crates/seedlock-tools"]
 # A plain `cargo build` (and the release scripts) builds the command-line program, exactly as before the
 # phone app's crates were added; those are built with -p (see android/README.md).
 default-members = ["crates/seedlock-core", "crates/seedlock-cli"]
 
 [workspace.package]
-version = "0.2.0"
+version = "0.2.1"
 edition = "2021"
 rust-version = "1.85"
 license = "MIT"

@@ -1,6 +1,8 @@
 # Builds the Rust part of SeedLock's Android app on Windows, before Android Studio builds the app itself:
 #   - libseedlock_ffi.so for the three kinds of processor phones have, into app\src\main\jniLibs\
 #   - the Kotlin code that calls it (package org.seedlock.ffi), into app\src\main\java\
+#   - the license notices of the libraries the app is built from, which the app shows (About SeedLock and its
+#     licenses), into app\src\main\assets\notices.txt
 #
 # In SeedLock's folder, in PowerShell or in Command Prompt:
 #
@@ -60,8 +62,8 @@ try {
 
     # The Kotlin code is written from a build for this computer: a debug build keeps the description that
     # uniffi-bindgen reads, and the code is the same for every kind of processor.
-    Write-Host 'Writing the Kotlin code that calls it ...'
-    & cargo build --locked -p seedlock-ffi -p uniffi-bindgen
+    Write-Host 'Writing the Kotlin code that calls it, and the license notices ...'
+    & cargo build --locked -p seedlock-ffi -p uniffi-bindgen -p seedlock-tools
     if ($LASTEXITCODE -ne 0) { Fail 'The build stopped with an error (see the messages above).' }
     $generated = Under 'android', 'app', 'src', 'main', 'java', 'org', 'seedlock', 'ffi'
     if (Test-Path -LiteralPath $generated) { Remove-Item -LiteralPath $generated -Recurse -Force }
@@ -69,6 +71,10 @@ try {
     $hostLib = Under 'target', 'debug', 'seedlock_ffi.dll'
     & $bindgen generate --no-format --language kotlin --out-dir (Under 'android', 'app', 'src', 'main', 'java') $hostLib
     if ($LASTEXITCODE -ne 0) { Fail 'uniffi-bindgen stopped with an error (see the messages above).' }
+    # the notices of exactly the libraries just built in (crates\seedlock-tools)
+    $notices = Under 'android', 'app', 'src', 'main', 'assets', 'notices.txt'
+    & (Under 'target', 'debug', 'seedlock-tools.exe') notices --android --out $notices
+    if ($LASTEXITCODE -ne 0) { Fail 'seedlock-tools could not write the license notices (see the messages above).' }
 
     foreach ($lib in (Get-ChildItem -LiteralPath $jnilibs -Recurse -Filter 'libseedlock_ffi.so')) {
         $text = [Text.Encoding]::ASCII.GetString([IO.File]::ReadAllBytes($lib.FullName))
@@ -84,6 +90,7 @@ try {
     Write-Host ''
     Write-Host 'Ready:'
     Get-ChildItem -LiteralPath $jnilibs -Recurse -Filter 'libseedlock_ffi.so' | ForEach-Object { Write-Host "  $($_.FullName)  $($_.Length) bytes" }
+    Write-Host "  $notices  $((Get-Item -LiteralPath $notices).Length) bytes"
     Write-Host 'Now open the folder "android" in Android Studio and build the app (android\README.md).'
 }
 finally {

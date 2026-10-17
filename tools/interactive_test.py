@@ -5,10 +5,10 @@ Drives SeedLock in a real pseudo-terminal, exactly like a person would.
 Checks: the backups folder, the "name your backup" prompt (and that a taken name asks again
 instead of aborting), the backup picker in the menu, no overwriting and no "--force" anywhere,
 the dice counter (typo, undo, 50/100 rolls), that typed secrets are never echoed, that Ctrl+C at a
-hidden prompt puts the terminal back, the online and virtual machine warnings, and the QR
-codes for signing (terminal fallback): the animated QR is captured from the screen, decoded with OpenCV and
-reassembled with the independent Foundation Devices UR library; the static QR is decoded and
-parsed by embit.
+hidden prompt puts the terminal back, the online and virtual machine warnings, a new backup's QR code
+(kept as a picture too), and the QR codes for signing (terminal fallback): the animated QR is captured
+from the screen, decoded with OpenCV and reassembled with the independent Foundation Devices UR library;
+the static QR is decoded and parsed by embit.
 
     pip install pexpect opencv-python-headless numpy cbor2 embit mnemonic pyte
     git clone https://github.com/Foundation-Devices/foundation-ur-py
@@ -517,6 +517,31 @@ assert s.c.signalstatus == signal.SIGINT, (s.c.exitstatus, s.c.signalstatus)
 assert modes & termios.ECHO and modes & termios.ICANON and modes & termios.ISIG, "the terminal was left showing nothing that is typed"
 assert "zoo zoo" not in s.log.getvalue()
 print("I) Ctrl+C at a hidden prompt ends SeedLock as Ctrl+C always does, and the terminal is put back first (it shows what is typed again): OK")
+
+# ---------------------------------------------------------------- J) a new backup shown as a QR code (menus 1 and 2) is kept as a picture too
+s = Session()
+s.expect(r"\n> "); s.send("2")
+s.expect(r"hidden as you type\):"); s.send("zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo wrong")
+s.expect("Mnemonic accepted")
+s.text(NAME_PROMPT); s.send("wallet-qr")
+s.expect(r"empty = generate one\): "); s.send(PW2)
+s.expect(r"Repeat the password: "); s.send(PW2)
+s.expect("Done. Your encrypted backup is saved and verified:")
+s.expect(r"QR code .*\[y/N\] "); s.send("y")
+s.text("The QR code is saved as a picture too, next to your backups:")       # said first ...
+s.expect(r"\n> ")
+drawn = qr_lines(s.before)                                                   # ... then the code is drawn
+picture = os.path.join(folder, "wallet-qr-qr.png")
+backup_line = [l for l in open(os.path.join(folder, "wallet-qr.seedlock")).read().splitlines() if l.startswith("SEEDLOCK1:")][0]
+assert picture in ANSI.sub("", s.log.getvalue()).replace("\r", "").replace("\n", ""), "the message gives the picture's full path"
+assert drawn and qr_text(drawn) == backup_line + "\n# name: wallet-qr", "the code drawn here: the backup and its name"
+img = cv2.imread(picture, cv2.IMREAD_GRAYSCALE)
+assert img is not None, os.listdir(folder)
+read = [d().detectAndDecode(img)[0] for d in ([cv2.QRCodeDetectorAruco] if hasattr(cv2, "QRCodeDetectorAruco") else []) + [cv2.QRCodeDetector]]
+assert backup_line + "\n# name: wallet-qr" in read, read
+s.send("q"); s.expect(pexpect.EOF)
+print("J) a new backup shown as a QR code (menus 1 and 2): saved as a picture next to the backup too, and where is said before "
+      "the code is drawn; the picture holds the backup and its name: OK")
 
 # ---------------------------------------------------------------- global checks over every screen
 log = ALL_LOGS.getvalue()

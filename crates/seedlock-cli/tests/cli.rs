@@ -353,6 +353,33 @@ fn the_backup_qr_code_carries_the_backups_name() {
     assert_eq!(png_qr_text(&dir.join("seedlocker backups").join("seedlock-backup-qr.png")), line);
 }
 
+/// A new backup shown as a QR code (menu 1's question, or `--qr`) is also kept as a picture next to the backups, as
+/// menu 8 does, and where it is is said before the code is shown; the same goes for menu 8.
+#[test]
+fn a_backups_qr_code_is_saved_as_a_picture_before_it_is_shown() {
+    let dir = tmp("newqr");
+    std::fs::create_dir_all(dir.join("seedlocker backups")).unwrap();
+    let file = dir.join("seedlocker backups").join("new one.seedlock");
+    let o = run_in(Some(&dir), &["encrypt", "--out", s(&file), "--kdf", "light", "--qr"], &format!("{WORDS}\n{PW}\n"));
+    assert!(o.status.success(), "{}", err(&o));
+    let said = err(&o);
+    let message = said.find("The QR code is saved as a picture too, next to your backups:").expect("where the picture is");
+    let code = said.find('█').expect("the QR code, drawn here (no window without a terminal)");
+    assert!(message < code, "said before the code is shown:\n{said}");
+    let picture = dir.join("seedlocker backups").join("new one-qr.png");
+    assert!(said.contains(&picture.display().to_string()), "{said}");
+    let contents = std::fs::read_to_string(&file).unwrap();
+    assert_eq!(png_qr_text(&picture), backup::qr_text(&contents, "new one").unwrap(), "the backup and its name");
+
+    // menu 8 ('seedlock qr'): the same picture, kept as it is, and said before the code too
+    let o = run_in(Some(&dir), &["qr", s(&file)], "");
+    assert!(o.status.success(), "{}", err(&o));
+    let said = err(&o);
+    assert!(said.find("saved as a picture too").unwrap() < said.find('█').unwrap(), "{said}");
+    let pictures = std::fs::read_dir(dir.join("seedlocker backups")).unwrap().filter(|e| e.as_ref().unwrap().path().extension().is_some_and(|x| x == "png")).count();
+    assert_eq!(pictures, 1, "nothing piles up");
+}
+
 /// A stand-in routing table of an offline computer, so that the menu does not depend on this one's network.
 fn offline_net(name: &str) -> PathBuf {
     let net = tmp(name);
@@ -604,15 +631,18 @@ fn shows_its_version_above_the_menu_and_with_dash_dash_version() {
 }
 
 /// Every version number that the README and the guides give for SeedLock ("SeedLock 0.1.1", "version 0.1.1",
-/// "seedlock-0.1.1") is the program's own, so that a new version in Cargo.toml cannot leave an old number behind.
+/// "seedlock-0.1.1") is the program's own, so that a new version in Cargo.toml cannot leave an old number behind. In
+/// the phone app's guide, which also says from which version on something is so, only the app's file name is checked
+/// ("seedlock-X.Y.Z-android.apk").
 #[test]
 fn the_readme_and_the_guides_show_this_version() {
     let version = env!("CARGO_PKG_VERSION");
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let all: &[&str] = &["SeedLock ", "version ", "seedlock-"];
     let mut found = 0;
-    for doc in ["README.md", "docs/GUIDE.md", "docs/DEVELOPMENT.md"] {
+    for (doc, words) in [("README.md", all), ("docs/GUIDE.md", all), ("docs/DEVELOPMENT.md", all), ("android/README.md", &["seedlock-"][..])] {
         let text = std::fs::read_to_string(root.join(doc)).unwrap();
-        for word in ["SeedLock ", "version ", "seedlock-"] {
+        for word in words {
             for (at, _) in text.match_indices(word) {
                 let number: String = text[at + word.len()..].chars().take_while(|c| c.is_ascii_digit() || *c == '.').collect();
                 let number = number.trim_end_matches('.');

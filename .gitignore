@@ -17,9 +17,14 @@ __pycache__/
 Thumbs.db
 # the ready-made programs that tools/build-release.sh makes
 /dist/
-# the Android app: what android/build-rust.sh makes, and what Android Studio and Gradle make
+# the Android app: what android/build-rust.sh makes, and what Android Studio and Gradle make (the signed
+# release APK goes to android/app/release/); the Android signing key never belongs here
 /android/app/src/main/jniLibs/
 /android/app/src/main/java/org/seedlock/ffi/
+/android/app/src/main/assets/
+/android/app/release/
+*.jks
+*.keystore
 /android/.gradle/
 /android/.idea/
 /android/.kotlin/

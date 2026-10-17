@@ -129,8 +129,9 @@ s.text("Which backup do you want to generate as a QR code?")
 s.text(CHOOSE)
 assert "c) Scan" not in s.before, "no camera for menu 8: a QR code is made from a backup, not the other way round"
 s.send("1")
-s.text("The QR code was also saved as a picture, next to your backups:")
-s.text("Save a copy somewhere else too, for example on a USB stick? Type or drop a folder, or press Enter to skip: ")
+s.text("The QR code is saved as a picture too, next to your backups:")       # said first, before the code is shown
+s.text("Save a copy of wallet-one-qr.png somewhere else too, for example on a USB stick? Type or drop a folder, or press Enter to skip: ")
+assert "\u2588" in s.before, "the QR code drawn in the terminal comes after where its picture is"
 s.send("/nonexistent/usb"); s.text('There is no folder at "/nonexistent/usb".')        # a wrong folder: said, asked again
 usb = tempfile.mkdtemp(suffix=" usb stick")                                              # a name with a space ...
 s.text("press Enter to skip: "); s.send(f"'{usb}' ")                                     # ... dropped the Linux way
@@ -148,10 +149,10 @@ assert img is not None and img.shape[0] == img.shape[1] and img.shape[0] >= 300,
 assert decode_qr(img) == BACKUP_CODE, ("the picture does not contain the backup and its name", decode_qr(img))
 assert os.listdir(usb) == ["wallet-one-qr.png"] and open(os.path.join(usb, "wallet-one-qr.png"), "rb").read() == open(picture, "rb").read()
 s.send("8"); s.text(CHOOSE); s.send("1")     # again: same picture, nothing piles up
-s.text("The QR code was also saved as a picture"); s.text("Save a copy somewhere else too"); s.send()   # Enter: no copy
+s.text("The QR code is saved as a picture too"); s.text("Save a copy of wallet-one-qr.png somewhere else too"); s.send()   # Enter: no copy
 s.expect(r"\n> "); s.send("q"); s.expect(pexpect.EOF)
 assert sorted(f for f in os.listdir(os.path.join(work, "seedlocker backups")) if f.endswith(".png")) == ["wallet-one-qr.png"]
-print(f"H) menu 8 saved 'wallet-one-qr.png' ({img.shape[0]}x{img.shape[1]} px) in the backups folder; OpenCV reads the backup text and its name line from it; a copy goes to a dropped folder (a wrong one is asked again); asking again piles up nothing: OK")
+print(f"H) menu 8 saved 'wallet-one-qr.png' ({img.shape[0]}x{img.shape[1]} px) in the backups folder, and said so before drawing the code; OpenCV reads the backup text and its name line from it; a copy goes to a dropped folder (a wrong one is asked again); asking again piles up nothing: OK")
 
 # ---------------------------------------------------------------- I) menu 6: guidance, file list, wrong path, network found, back
 s = Session()
@@ -513,15 +514,16 @@ else:
         print("N2) typing t closes the window and draws the QR code in the terminal instead: OK")
 
         s = Session(["qr", "wallet-two"], env=env_win)
+        s.text("The QR code is saved as a picture too, next to your backups:")   # said first, while the window is open
         s.text("The QR code is shown in a window of its own.")
         s.text("(or type t to draw the QR code here instead): ")
         read, size = window_film(1.5, "backup-window")
         backup_line = [l for l in open(os.path.join(work, "seedlocker backups", "wallet-two.seedlock")).read().splitlines() if l.startswith("SEEDLOCK1:")][0]
         assert read and set(read) == {backup_line + "\n# name: wallet-two"}, (len(read), read[:1])
         s.send(); s.expect(pexpect.EOF)
-        assert "The QR code was also saved as a picture" in s.log.getvalue() and not running("ffplay")
+        assert not running("ffplay")
         print(f"N3) menu 8 ('seedlock qr'): the backup's QR code opens in the window ({size[1]}x{size[0]} px) and reads back as exactly the backup text "
-              f"and its name line; the picture is still saved: OK")
+              f"and its name line; where its picture is saved is said before the window opens: OK")
 
         no_screen = {k: v for k, v in env_win.items() if k not in ("DISPLAY", "WAYLAND_DISPLAY")}
         no_ffplay = dict(env_win, SEEDLOCK_FFPLAY="/nonexistent/ffplay")
@@ -637,10 +639,10 @@ def wallet_screen(s, answer_network=None):
     if answer_network:
         s.text("There is no transaction of this wallet here, so SeedLock cannot tell its network by itself.")
         s.text("Type m or t [m]: "); s.send(answer_network)
-    s.text("Show the wallet as a QR code for Sparrow to scan? [Y/n] ")
+    s.text("Saved next to your backups.")                     # saved first, before the QR code is offered
     shown = s.before
+    s.text("Show the wallet as a QR code for Sparrow to scan? [Y/n] ")
     s.send("n")
-    s.text("Saved next to your backups.")
     s.expect(r"\n> "); s.send("q"); s.expect(pexpect.EOF)
     return shown
 

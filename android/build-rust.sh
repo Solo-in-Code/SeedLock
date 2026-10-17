@@ -2,6 +2,8 @@
 # Builds the Rust part of SeedLock's Android app, before Android Studio builds the app itself:
 #   - libseedlock_ffi.so for the three kinds of processor phones have, into app/src/main/jniLibs/
 #   - the Kotlin code that calls it (package org.seedlock.ffi), into app/src/main/java/
+#   - the license notices of the libraries the app is built from, which the app shows (About SeedLock and its
+#     licenses), into app/src/main/assets/notices.txt
 #
 #   sh android/build-rust.sh        (Linux and macOS; on Windows: android\build-rust.ps1)
 #
@@ -36,14 +38,16 @@ CARGO_ENCODED_RUSTFLAGS="$flags" cargo ndk -t arm64-v8a -t armeabi-v7a -t x86_64
 # The Kotlin code is written from a build for this computer: a debug build keeps the description that
 # uniffi-bindgen reads (the build for phones has it stripped), and the code is the same for
 # every kind of processor.
-echo "Writing the Kotlin code that calls it ..."
-cargo build --locked -p seedlock-ffi -p uniffi-bindgen
+echo "Writing the Kotlin code that calls it, and the license notices ..."
+cargo build --locked -p seedlock-ffi -p uniffi-bindgen -p seedlock-tools
 case "$(uname -s)" in
     Darwin) host_lib=target/debug/libseedlock_ffi.dylib ;;
     *) host_lib=target/debug/libseedlock_ffi.so ;;
 esac
 rm -rf android/app/src/main/java/org/seedlock/ffi
 target/debug/uniffi-bindgen generate --no-format --language kotlin --out-dir android/app/src/main/java "$host_lib"
+# the notices of exactly the libraries just built in (crates/seedlock-tools)
+target/debug/seedlock-tools notices --android --out android/app/src/main/assets/notices.txt
 
 for lib in "$jnilibs"/*/libseedlock_ffi.so; do
     for folder in "$HOME" ${CARGO_HOME:+"$CARGO_HOME"}; do
@@ -55,5 +59,5 @@ for lib in "$jnilibs"/*/libseedlock_ffi.so; do
 done
 echo
 echo "Ready:"
-ls -l "$jnilibs"/*/libseedlock_ffi.so android/app/src/main/java/org/seedlock/ffi/*.kt
+ls -l "$jnilibs"/*/libseedlock_ffi.so android/app/src/main/java/org/seedlock/ffi/*.kt android/app/src/main/assets/notices.txt
 echo "Now open the folder \"android\" in Android Studio and build the app (android/README.md)."
