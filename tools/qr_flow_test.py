@@ -15,11 +15,13 @@ End-to-end checks of the QR features, driven like a person would, with independe
   M) the preview window: the real ffplay on a virtual X screen; a screenshot of it is decoded.
   O) a backup read from its QR code with the camera, through the real ffmpeg: it opens and it signs.
   N) the QR window (the default for showing QR codes): the real ffplay on a virtual X screen is filmed, the film is
-     decoded and reassembled into the signed PSBT; t, the backup QR code, and the fallbacks without a screen or ffplay.
+     decoded and reassembled into the signed PSBT; t, the backup QR code, and the fallbacks without a screen or ffplay;
+     and the window closing with SeedLock when the computer goes online while it is open.
   P) menu 5: the wallet laid out for Sparrow, equal to embit's; its QR picture, a UR crypto-output, read with urtypes
      as embit's own account key, its keystore named after the backup.
 
     pip install pexpect opencv-python-headless numpy cbor2 embit segno urtypes;  npm install jsdom (set JSDOM_DIR to its node_modules)
+    cargo build --release --locked -p seedlock-cli --features test-hooks    # a build for the tests: it reads their stand-in networks
     python3 qr_flow_test.py ../target/release/seedlock --ur-lib foundation-ur-py
 """
 import argparse, io, json, os, re, shutil, subprocess, sys, tempfile, time
@@ -33,6 +35,25 @@ ap.add_argument("bin")
 ap.add_argument("--ur-lib", default=os.environ.get("FOUNDATION_UR_PY"))
 args = ap.parse_args()
 BIN = os.path.abspath(args.bin)
+
+
+def check_test_build(program):
+    """These tests show SeedLock stand-in networks (offline, online). Only a build for testing reads them: a released
+    program has no way to be made to believe that the computer is offline. Stop at once, saying how to build it."""
+    probe = tempfile.mkdtemp()
+    with open(os.path.join(probe, "route"), "w") as f:
+        f.write("Iface\tDestination\tGateway \tFlags\tRefCnt\tUse\tMetric\tMask\t\tMTU\tWindow\tIRTT\n"
+                "probe9\t00000000\t0101A8C0\t0003\t0\t0\t600\t00000000\t0\t0\t0\n")
+    open(os.path.join(probe, "ipv6_route"), "w").close()
+    r = subprocess.run([program, "password"], env=dict(os.environ, SEEDLOCK_TEST_NET_DIR=probe), capture_output=True, text=True,
+                       stdin=subprocess.DEVNULL)
+    if "probe9" not in r.stderr:
+        sys.exit(f"{program} is not a build for these tests: it does not read the stand-in networks they show it. Build it with\n"
+                 "  cargo build --release --locked -p seedlock-cli --features test-hooks\n"
+                 "and give target/release/seedlock (the released programs have no such way around the offline check).")
+
+
+check_test_build(BIN)
 sys.path.insert(0, os.path.abspath(args.ur_lib))
 from ur.ur import UR
 from ur.ur_decoder import URDecoder
@@ -481,7 +502,9 @@ else:
         return s
 
     def running(name):
-        return subprocess.run(["pgrep", "-x", name], capture_output=True).returncode == 0
+        """A process of that name that has not ended (one that ended but was not collected yet does not count)."""
+        ps = subprocess.run(["ps", "-eo", "stat=,comm="], capture_output=True, text=True).stdout.splitlines()
+        return any(line.split()[1:] == [name] and not line.lstrip().startswith("Z") for line in ps if line.strip())
 
     try:
         s = sign_with_window(env_win)
@@ -532,6 +555,19 @@ else:
             s.text(f"(No QR window: {why}"); s.text("The QR code is drawn in this terminal instead.)")
             s.expect(r"Frame 1/\d+"); s.expect(pexpect.TIMEOUT, timeout=0.8); s.send(); s.expect(pexpect.EOF)
         print("N4) without a screen, or without ffplay, SeedLock says why in one line and draws the QR code in the terminal: OK")
+
+        # the computer goes online while the window shows a QR code: SeedLock stops at once, and the window closes with it
+        switch = tempfile.mkdtemp()
+        for name in ("route", "ipv6_route"):
+            shutil.copy(os.path.join(NET, "offline", name), switch)
+        s = Session(["qr", "wallet-two"], env=dict(env_win, SEEDLOCK_TEST_NET_DIR=switch))
+        s.text("(or type t to draw the QR code here instead): ")
+        assert running("ffplay")
+        shutil.copy(os.path.join(NET, "online", "route"), os.path.join(switch, "route"))
+        s.text("SEEDLOCK STOPPED: THIS COMPUTER IS NOT OFFLINE"); s.expect(pexpect.EOF); s.c.close()
+        time.sleep(1)
+        assert s.c.exitstatus == 3 and not running("ffplay"), (s.c.exitstatus, running("ffplay"))
+        print("N5) the computer goes online while the QR window is open: SeedLock stops at once (exit code 3), and the window closes with it: OK")
     finally:
         xvfb.terminate()
 

@@ -279,6 +279,40 @@ impl Drop for KeyReader {
     }
 }
 
+/// The terminal's settings when SeedLock started (see [`remember_terminal`]).
+#[cfg(unix)]
+static START_TERMINAL: std::sync::OnceLock<libc::termios> = std::sync::OnceLock::new();
+
+/// Remembers the terminal's settings as SeedLock found them, so that [`restore_terminal`] can put them back
+/// from anywhere: when SeedLock has to stop at once (the computer went online) while it reads a password
+/// (nothing typed shows) or single keys (the dice counter).
+#[cfg(unix)]
+#[allow(unsafe_code)]
+pub fn remember_terminal() {
+    if !io::stdin().is_terminal() {
+        return;
+    }
+    // SAFETY: tcgetattr fills in the struct before it is kept.
+    unsafe {
+        let mut term: libc::termios = std::mem::zeroed();
+        if libc::tcgetattr(libc::STDIN_FILENO, &mut term) == 0 {
+            let _ = START_TERMINAL.set(term);
+        }
+    }
+}
+
+/// Puts the terminal back as SeedLock found it: it shows what is typed again, a line at a time.
+#[cfg(unix)]
+#[allow(unsafe_code)]
+pub fn restore_terminal() {
+    if let Some(term) = START_TERMINAL.get() {
+        // SAFETY: settings that tcgetattr gave, put back on the same terminal.
+        unsafe {
+            libc::tcsetattr(libc::STDIN_FILENO, libc::TCSANOW, term);
+        }
+    }
+}
+
 /// Windows: the console's own single-key mode. While a KeyReader exists, the console is out of
 /// line input and echo (it is put back when the reader is dropped); with virtual-terminal input on,
 /// arrow keys arrive as the same escape sequences as on Unix and are skipped the same way.
@@ -396,6 +430,38 @@ mod windows_console {
         }
     }
 
+    /// The console's input mode when SeedLock started (see [`remember_terminal`]).
+    static START_MODE: std::sync::OnceLock<u32> = std::sync::OnceLock::new();
+
+    /// Remembers the console's input mode as SeedLock found it, so that [`restore_terminal`] can put it back
+    /// from anywhere: when SeedLock has to stop at once (the computer went online) while it reads a password
+    /// or single keys.
+    #[allow(unsafe_code)]
+    pub fn remember_terminal() {
+        // SAFETY: plain console calls on this process's standard input; `mode` is written before it is kept.
+        unsafe {
+            let input = GetStdHandle(STD_INPUT_HANDLE);
+            let mut mode = 0u32;
+            if usable(input) && GetConsoleMode(input, &mut mode) != 0 {
+                let _ = START_MODE.set(mode);
+            }
+        }
+    }
+
+    /// Puts the console's input mode back as SeedLock found it: line input, with what is typed shown.
+    #[allow(unsafe_code)]
+    pub fn restore_terminal() {
+        if let Some(mode) = START_MODE.get() {
+            // SAFETY: a mode that GetConsoleMode gave, put back on the same console.
+            unsafe {
+                let input = GetStdHandle(STD_INPUT_HANDLE);
+                if usable(input) {
+                    SetConsoleMode(input, *mode);
+                }
+            }
+        }
+    }
+
     /// Let the console window understand the terminal codes SeedLock writes (colours, moving the
     /// cursor, clearing a line). Windows Terminal does already; the older console window must be asked.
     #[allow(unsafe_code)]
@@ -414,7 +480,14 @@ mod windows_console {
 }
 
 #[cfg(windows)]
-pub use windows_console::{enable_terminal_codes, KeyReader};
+pub use windows_console::{enable_terminal_codes, remember_terminal, restore_terminal, KeyReader};
+
+/// Elsewhere the terminal's settings are not changed, so there is nothing to put back.
+#[cfg(not(any(unix, windows)))]
+pub fn remember_terminal() {}
+
+#[cfg(not(any(unix, windows)))]
+pub fn restore_terminal() {}
 
 /// Elsewhere there is no live key reading: callers fall back to whole lines.
 #[cfg(not(any(unix, windows)))]

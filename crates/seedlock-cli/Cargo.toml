@@ -19,6 +19,13 @@ qrcode = { version = "0.14", default-features = false, features = ["svg"] }
 rpassword = "7"
 zeroize = "1"
 
+[features]
+# Only for the test scripts in tools/ (cargo build --release --locked -p seedlock-cli --features test-hooks): the program
+# then reads stand-in routing tables from SEEDLOCK_TEST_NET_DIR, so that the tests can show it a computer that is
+# offline or online. Debug builds (cargo test) read them too. A released program never does: it has no way to be made
+# to believe that the computer is offline (tools/build-release.sh checks that).
+test-hooks = []
+
 [dev-dependencies]
 # to read back, in the tests, the QR codes that SeedLock draws
 rqrr = { version = "0.10", default-features = false }

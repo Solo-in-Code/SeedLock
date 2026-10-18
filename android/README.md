@@ -12,8 +12,10 @@ on, every release has the app ready-made, signed with SeedLock's own key; you ca
 
 What makes it safe to use on a phone:
 
-* **It cannot use the internet.** The app does not have Android's INTERNET permission, so Android itself
-  refuses it any network connection. It warns you when the phone is not in airplane mode.
+* **It cannot use the internet, and it works only offline.** The app does not have Android's INTERNET
+  permission, so Android itself refuses it any network connection. And it works only while the phone is in
+  airplane mode with no network connected: otherwise its first screen shows only a message, and if the
+  phone goes online while SeedLock is open, it closes everything at once.
 * **The seed stays in SeedLock's Rust code** (`crates/seedlock-core`, the same as the computer's), in
   memory that is wiped when it is no longer needed. Leaving the app (the home button, another app, the
   screen switching off) closes the open backup.
@@ -29,16 +31,16 @@ What makes it safe to use on a phone:
 On the online computer:
 
 1. **Download it.** On SeedLock's GitHub page, click **Releases** on the right. Under the newest release,
-   in its **Assets**, download `seedlock-0.2.1-android.apk` (the version may be newer) and
+   in its **Assets**, download `seedlock-0.3.0-android.apk` (the version may be newer) and
    `SHA256SUMS.txt`.
 2. **Check it,** as for the computer programs (the main README, Part 1, Way A, step 2). Open a terminal
    in the folder it was downloaded to and type the line for your computer:
 
    | Computer | Command |
    |---|---|
-   | Windows | `(Get-FileHash seedlock-0.2.1-android.apk).Hash` |
-   | Mac | `shasum -a 256 seedlock-0.2.1-android.apk` |
-   | Linux | `sha256sum seedlock-0.2.1-android.apk` |
+   | Windows | `(Get-FileHash seedlock-0.3.0-android.apk).Hash` |
+   | Mac | `shasum -a 256 seedlock-0.3.0-android.apk` |
+   | Linux | `sha256sum seedlock-0.3.0-android.apk` |
 
    The long number it shows must be exactly the one next to the file's name in `SHA256SUMS.txt`. If it is
    not, delete the file. To check that list's signature too, see the guide:
@@ -47,8 +49,8 @@ On the online computer:
    Android asks to allow installing apps from that app: allow it, install, and then take the permission
    back (**Settings > Apps > Files > Install unknown apps**).
 
-Then put the phone in **airplane mode** and keep Wi-Fi, mobile data and Bluetooth off. SeedLock's first
-screen says whether the phone is offline.
+Then put the phone in **airplane mode** and keep Wi-Fi, mobile data and Bluetooth off: SeedLock works only
+then. Until the phone is offline, its first screen shows only a message (it checks every second).
 
 **Its signature.** The app is signed with SeedLock's own Android key. Android checks that by itself: it
 installs an update only when the update is signed with the same key, and the backups on the phone stay.
@@ -129,7 +131,8 @@ you use.
 In Android Studio: **Tools > Device Manager**, add a phone (any recent one), then click the green
 **Run** button at the top. The emulator's camera can be your computer's webcam: in the Device Manager,
 edit the virtual phone and, in its settings (**Show Advanced Settings** or **Additional settings**,
-depending on the version), set the back camera to your webcam (**Webcam0**).
+depending on the version), set the back camera to your webcam (**Webcam0**). As on a phone, SeedLock
+works only once the emulator is in airplane mode (pull down its quick settings).
 
 ### Install it on the phone
 
@@ -171,8 +174,8 @@ test key). A build from another computer is refused as an update: then first sav
 Builds from before version 0.2.1 were called SeedLock, not SeedLock test: a newer build installs beside
 such an old one, so move its backups over (save their copies, add them) and then uninstall the old one.
 
-Then put the phone in **airplane mode** and keep Wi-Fi, mobile data and Bluetooth off. SeedLock's first
-screen says whether the phone is offline.
+Then put the phone in **airplane mode** and keep Wi-Fi, mobile data and Bluetooth off: SeedLock works only
+then. Until the phone is offline, its first screen shows only a message (it checks every second).
 
 ## What to try
 
@@ -249,6 +252,11 @@ screen says whether the phone is offline.
     from.
 12. **The ready-made app** (from version 0.2.1 on): install it as **Installing the ready-made app** says.
     It installs beside SeedLock test, as SeedLock; add a backup to it and sign with it as in 1 and 4.
+13. **Offline only** (from version 0.3.0 on). Open a backup's screen, then turn airplane mode off in the
+    quick settings: within a second SeedLock closes everything, and its first screen says that it works
+    only offline, and why (airplane mode is off, or a network is connected). Turn airplane mode on again:
+    the backups come back by themselves. Do the same while SeedLock asks for a password, or shows a new
+    seed's words.
 
 Tell what happened at each step, and what the phone showed when something did not work (its make and
 model, and the Android version from **Settings > About phone**).

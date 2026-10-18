@@ -14,7 +14,7 @@ With SeedLock you can:
   QR code with the computer's camera;
 * be one of the keys of a **multisig wallet** (for example 2 of 3).
 
-> **Status: version 0.2.1, not independently audited.** Nobody outside this project has reviewed it yet. Try it on
+> **Status: version 0.3.0, not independently audited.** Nobody outside this project has reviewed it yet. Try it on
 > testnet, or with a small amount, first. Never type a real seed into a website, a chat or an online computer.
 
 ## Contents
@@ -66,9 +66,9 @@ The offline computer needs one program file. There are two ways to get it:
 
    | Offline computer | Program to download |
    |---|---|
-   | Windows (64-bit) | `seedlock-0.2.1-windows-x86_64.exe` |
-   | Mac, with an Apple chip or an Intel chip | `seedlock-0.2.1-macos` |
-   | Linux, on a 64-bit Intel or AMD processor | `seedlock-0.2.1-linux-x86_64` |
+   | Windows (64-bit) | `seedlock-0.3.0-windows-x86_64.exe` |
+   | Mac, with an Apple chip or an Intel chip | `seedlock-0.3.0-macos` |
+   | Linux, on a 64-bit Intel or AMD processor | `seedlock-0.3.0-linux-x86_64` |
 
    For other computers, such as a Raspberry Pi, build SeedLock yourself (Way B), and also if the newest release has
    no programs to download yet. If your browser warns that the program is not commonly downloaded, choose to keep it
@@ -83,9 +83,9 @@ The offline computer needs one program file. There are two ways to get it:
 
    | Program | Command |
    |---|---|
-   | Windows | `(Get-FileHash seedlock-0.2.1-windows-x86_64.exe).Hash` |
-   | Mac | `shasum -a 256 seedlock-0.2.1-macos` |
-   | Linux | `sha256sum seedlock-0.2.1-linux-x86_64` |
+   | Windows | `(Get-FileHash seedlock-0.3.0-windows-x86_64.exe).Hash` |
+   | Mac | `shasum -a 256 seedlock-0.3.0-macos` |
+   | Linux | `sha256sum seedlock-0.3.0-linux-x86_64` |
 
    It shows a long number: the program's fingerprint (its SHA-256 checksum). Open `SHA256SUMS.txt` with a text
    editor: the number next to the program's name must be exactly the same (upper or lower case does not matter). If
@@ -151,7 +151,7 @@ You do this once, on a computer with internet.
 #### Step 2: download the source code
 
 On SeedLock's GitHub page (the page that shows this text), click **Releases** on the right. Under the newest release,
-in its **Assets**, click **Source code (zip)**. Unzip the file: you get a folder with a name like `seedlock-0.2.1`.
+in its **Assets**, click **Source code (zip)**. Unzip the file: you get a folder with a name like `seedlock-0.3.0`.
 
 (If there is no release yet, click the green **Code** button above the list of files, then **Download ZIP**: you get
 the newest files, in a folder with a name like `seedlock-main`.)
@@ -249,8 +249,8 @@ it: a double-clicked program may start in your home folder, and SeedLock would t
 SeedLock starts with its menu:
 
 ```
-=== SeedLock 0.2.1: offline Bitcoin seed tool ===
-Use this on a computer that is NOT connected to the internet.
+=== SeedLock 0.3.0: offline Bitcoin seed tool ===
+It works only on a computer that is not connected to any network.
 
 This computer is offline: no network connection was found.
 
@@ -268,9 +268,10 @@ What would you like to do?
   q) Quit
 ```
 
-If instead it shows **WARNING: THIS COMPUTER IS ONLINE**, disconnect the computer (Wi-Fi off, network cable out)
-before you create or open any seed. SeedLock itself never uses the network, but on an online computer other programs
-could see your seed.
+**SeedLock works only offline.** If the computer is connected to a network, SeedLock shows **SEEDLOCK WORKS ONLY
+OFFLINE** with the connection it found, and nothing else: disconnect the computer (Wi-Fi off, network cable out) and
+press Enter, and the menu opens. If the computer goes online while SeedLock is open, SeedLock clears the screen and
+stops at once. SeedLock itself never uses the network, but on a connected computer other programs could see your seed.
 
 **Where your backups go:** into a folder named `seedlocker backups`, inside the folder you start SeedLock from.
 Always start SeedLock from its own folder, as above, and the program and your backups stay together.
@@ -340,7 +341,7 @@ Everything in detail, including multisig and the camera, is in the [user guide](
 * [The backup file format](docs/FORMAT.md), and [`tools/recover.py`](tools/recover.py), an independent program that
   opens a backup without SeedLock, so your backups do not depend on this program.
 * [SeedLock for Android](android/README.md), a preview: the same backups and the same signing (multisig too) on a
-  spare phone kept in airplane mode. The releases have it ready-made (`seedlock-0.2.1-android.apk`, in the same signed
+  spare phone kept in airplane mode. The releases have it ready-made (`seedlock-0.3.0-android.apk`, in the same signed
   list); its README says how to install it, or to build it yourself.
 
 ## License

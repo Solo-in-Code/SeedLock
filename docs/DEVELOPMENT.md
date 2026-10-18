@@ -103,7 +103,7 @@ offline computer with the file you built yourself, by its SHA-256 checksum.
 ### The version number
 
 The program takes its version from one place, `version` under `[workspace.package]` in the top `Cargo.toml`. The
-menu's title shows it (`=== SeedLock 0.2.1: offline Bitcoin seed tool ===`), and `seedlock --version` prints it.
+menu's title shows it (`=== SeedLock 0.3.0: offline Bitcoin seed tool ===`), and `seedlock --version` prints it.
 `Cargo.lock` records it too: after changing it, run `cargo build --offline` once without `--locked`, so that
 `Cargo.lock` follows. The README and the guides show it as well; see [Making a release](#making-a-release).
 
@@ -160,19 +160,22 @@ an error the app shows, which UniFFI does, rather than close the app at once. Li
 keeps your user name out of the library and checks that it did.
 
 What keeps the phone offline and the secrets in it: the app has no INTERNET permission, so Android refuses it every
-network connection (the manifest even takes the permission out should a library ask for it); it warns when the phone
-is not in airplane mode; its screens and its dialogs cannot be captured or recorded (`FLAG_SECURE` on each window); a
-seed's words cannot be selected or copied, and a new password reaches the clipboard only when **Copy it** is tapped
-(for a password manager on the same phone), marked as sensitive, and SeedLock empties the clipboard when it is back in
-front if its copy is still there; its text fields allow no keyboard learning or autofill; its files are left out of
-Android's cloud backup and of the copy to a new phone; and leaving the app closes every screen but the first and every
-dialog, and with them any open seed (work that ends meanwhile, such as opening a backup, shows nothing). Two
-exceptions, each for at most 5 minutes, are for a password manager on the same phone: after **Copy it**, the new
-seed's screen stays open while the password is pasted into the password manager; and while SeedLock asks for a
-backup's password, when no seed is open yet (only the first screen and a backup's or a multisig wallet's screen are
-under the prompt), the prompt stays while the password is copied from the password manager, and when the prompt
-closes, SeedLock empties the clipboard. `tools/audit-offline.sh` checks the library, the permissions, the app's
-libraries and its Kotlin code (see [the audit](#supply-chain-and-the-offline-audit)).
+network connection (the manifest even takes the permission out should a library ask for it); it works only while the
+phone is offline (airplane mode on, no network connected): it checks every second while it is in use, its first screen
+shows only a message while the phone is online, and going online closes every screen and dialog at once, with any open
+seed, lets go of what it waited for, and takes a password it copied off the clipboard (`MainActivity.checkNetwork`);
+its screens and its dialogs cannot be captured or recorded (`FLAG_SECURE` on each window); a seed's words cannot be
+selected or copied, and a new password reaches the clipboard only when **Copy it** is tapped (for a password manager
+on the same phone), marked as sensitive, and SeedLock empties the clipboard when it is back in front if its copy is
+still there; its text fields allow no keyboard learning or autofill; its files are left out of Android's cloud backup
+and of the copy to a new phone; and leaving the app closes every screen but the first and every dialog, and with them
+any open seed (work that ends meanwhile, such as opening a backup, shows nothing). Two exceptions, each for at most 5
+minutes, are for a password manager on the same phone: after **Copy it**, the new seed's screen stays open while the
+password is pasted into the password manager; and while SeedLock asks for a backup's password, when no seed is open
+yet (only the first screen and a backup's or a multisig wallet's screen are under the prompt), the prompt stays while
+the password is copied from the password manager, and when the prompt closes, SeedLock empties the clipboard.
+`tools/audit-offline.sh` checks the library, the permissions, the app's libraries and its Kotlin code (see [the
+audit](#supply-chain-and-the-offline-audit)).
 
 Two more things to know about the app:
 
@@ -200,8 +203,9 @@ A release is a version of SeedLock that people download exactly as it was tested
    the current version: the status note, the program and folder names in Part 1, the menu and the phone app's file
    name. Where a text says from which version on something is so, its number stays. `cargo test` fails if one was
    forgotten (the test `the_readme_and_the_guides_show_this_version`).
-2. **Check everything:** `cargo test --workspace --locked`, the three test scripts, `sh tools/audit-offline.sh` (see
-   [Re-running the tests](#re-running-the-tests)), and a build with Rust 1.85, the oldest version SeedLock supports.
+2. **Check everything:** `cargo test --workspace --locked`, the three test scripts (with a build for the tests),
+   `sh tools/audit-offline.sh` (see [Re-running the tests](#re-running-the-tests)), and a build with Rust 1.85, the
+   oldest version SeedLock supports.
 3. **Put the files on GitHub,** on the `main` branch. In the web interface: open the folder a changed file belongs
    in, click **Add file > Upload files**, and drag the file in (a file with the same name is replaced). Many files at
    once: on the repository's main page, drag whole folders (such as `crates` and `docs`) and files together onto the
@@ -254,10 +258,11 @@ A release is a version of SeedLock that people download exactly as it was tested
       debugged, the permissions, the libraries and the code in it, its license notices, no user name inside, and the
       key it is signed with), puts it into `dist` as `seedlock-X.Y.Z-android.apk` and prints its SHA-256: write that
       down too. If something is wrong, it says what, and nothing goes into `dist`.
-5. **Try each program** on its system: it starts, shows the version in the menu's title, and opens a backup. Best on
-   a computer where Rust was never installed, as the users' computers are. On Linux, the three test scripts also take
-   the ready-made program: give its path instead of `target/release/seedlock`. Install the phone app on a phone as
-   android/README.md (Installing the ready-made app) says, and open a backup with it.
+5. **Try each program** on its system, offline: it starts, shows the version in the menu's title, and opens a backup.
+   Best on a computer where Rust was never installed, as the users' computers are. (The three test scripts cannot
+   drive a ready-made program: it has no way to be shown a stand-in network, see [The online check](#the-online-check).)
+   Install the phone app on a phone as android/README.md (Installing the ready-made app) says, and open a backup with
+   it.
 6. **The checksum list.** Bring the three programs and the phone app to one Linux or Mac computer (a USB stick is
    fine), into one folder, and check that each one still has the SHA-256 written down in step 4. Then, in that folder:
 
@@ -395,7 +400,8 @@ key:
 
 `Cargo.lock` is included and pins every library: 82 crates in the program's dependency tree, none of which can use
 the network. Build with `--locked`, review `Cargo.lock`, and, if you like, vendor the sources (above) and read what
-you build. There is no telemetry and no network code: the online check only reads the computer's own routing table.
+you build. There is no telemetry and no network code: the online check, which keeps SeedLock from working on a
+computer that is not offline, only reads the computer's own routing table.
 
 `sh tools/audit-offline.sh` checks, on every run:
 
@@ -410,7 +416,7 @@ you build. There is no telemetry and no network code: the online check only read
 5. the licenses (below);
 6. the phone app: checks 2 to 4 cover its Rust code too; its library has no networking crate either, on every system
    (Android's included, whatever computer runs the audit), and its licenses are checked like the program's; its
-   manifest asks Android only for the camera and the network state (to warn when the phone is online) and takes
+   manifest asks Android only for the camera and the network state (to work only while the phone is offline) and takes
    INTERNET out; JNA is its only other library; and its Kotlin code uses no network API;
 7. the build helper `crates/seedlock-tools` (the app's license notices, the check of a release APK), which runs on the
    computer that builds the app and is never part of SeedLock: no networking crate in its tree either, and the only
@@ -468,7 +474,7 @@ this version's, or whose code is from any other library than those.
 
 ### Automated tests
 
-**165 automated tests** (`cargo test --workspace --locked`):
+**167 automated tests** (`cargo test --workspace --locked`):
 
 * **71 for the core library:** backup tamper detection on every bit; a backup's QR code with its name line, still
   read as the backup exactly the way earlier versions read it; BIP39/32/44/49/84/86 test vectors; BIP380 descriptor
@@ -486,30 +492,33 @@ this version's, or whose code is from any other library than those.
   read in all three encodings, in any order and with repeats; a code that would unpack to more than 16 MB refused; a
   BBQr transaction and a BBQr descriptor taken by the scanners, and a finished transaction passed over. The network
   found from a transaction's key paths (for both programs).
-* **31 unit tests of the command-line program:** a PNG encoder read back by a decoder written for the test; the web
+* **32 unit tests of the command-line program:** a PNG encoder read back by a decoder written for the test; the web
   page; the outline and progress bar drawn on the preview; a whole transaction rebuilt from pictures; the pipes to
   stand-in ffmpeg and ffplay programs; a preview that fails or is missing; both terminal QR styles, with the full one
   read back square by square and decoded; which terminal gets which style; the QR window fed through a pipe to a
   stand-in ffplay (every code in turn, each for its whole interval, and a readable QR code) and a window that cannot
-  be opened; a backup read from its QR code among other codes, while a damaged one is never taken; dropped file paths
-  in each terminal's format; the network chosen from what the key paths say, `--network` winning, and a clear error
-  instead of a guess when they say nothing or contradict each other; the online check reading Linux routing tables,
-  macOS `route` output and Windows `route print` output in English and Spanish; a virtual machine recognised from its
-  firmware description (and real computers not); Windows registry values; a scanned backup matched to its file; and
-  which files of an earlier version go into the cosigner keys folder.
-* **30 end-to-end tests of the real program:** among them `sign --scan` through a stand-in ffmpeg; signing without
-  `--network` (a test-network transaction is recognised and shown with testnet addresses, a mainnet one is called real
-  bitcoin, `--network` still wins, and a transaction with no key paths gets a clear error instead of a guess); a
-  registered 2-of-3 wallet signed by two cosigners in turn, refused when unregistered, with the files an earlier
-  version kept next to the backups moved into their folders first; the backup's QR picture (menu 8) read back as the
-  backup line with the backup's name on a line of its own, and as the same backup, while a pasted backup line, which
-  has no name, still gives the line alone; a new backup's QR code (`--qr`, as menus 1 and 2 show it) saved as that
-  picture too, and where it is said before the code is shown, in menu 8 as well; menu 5's QR picture read back as
-  exactly the UR crypto-output that names the keystore after the backup, also written in the saved text file, with the
-  descriptor to paste still shown; a backup scanned from a named QR code, through a stand-in ffmpeg, giving its name
-  to the files made from it and to the keystore; the version in the menu's title, above the menu, and from
-  `--version`; the same version everywhere the README and the guides give it; and the same release key fingerprint
-  everywhere they give it, which is also the fingerprint of the key in `docs/release-key.asc`.
+  be opened; the programs SeedLock keeps running (the windows, the camera) ended when they are let go of, and all at
+  once just before SeedLock stops; a backup read from its QR code among other codes, while a damaged one is never
+  taken; dropped file paths in each terminal's format; the network chosen from what the key paths say, `--network`
+  winning, and a clear error instead of a guess when they say nothing or contradict each other; the online check
+  reading Linux routing tables, macOS `route` output and Windows `route print` output in English and Spanish; a
+  virtual machine recognised from its firmware description (and real computers not); Windows registry values; a
+  scanned backup matched to its file; and which files of an earlier version go into the cosigner keys folder.
+* **31 end-to-end tests of the real program:** among them that SeedLock works only offline (online, and where it
+  cannot tell, every command stops before it asks anything, with exit code 3, and so does the menu, while `--help` and
+  `--version` still answer); `sign --scan` through a stand-in ffmpeg; signing without `--network` (a test-network
+  transaction is recognised and shown with testnet addresses, a mainnet one is called real bitcoin, `--network` still
+  wins, and a transaction with no key paths gets a clear error instead of a guess); a registered 2-of-3 wallet signed
+  by two cosigners in turn, refused when unregistered, with the files an earlier version kept next to the backups
+  moved into their folders first; the backup's QR picture (menu 8) read back as the backup line with the backup's name
+  on a line of its own, and as the same backup, while a pasted backup line, which has no name, still gives the line
+  alone; a new backup's QR code (`--qr`, as menus 1 and 2 show it) saved as that picture too, and where it is said
+  before the code is shown, in menu 8 as well; menu 5's QR picture read back as exactly the UR crypto-output that
+  names the keystore after the backup, also written in the saved text file, with the descriptor to paste still shown;
+  a backup scanned from a named QR code, through a stand-in ffmpeg, giving its name to the files made from it and to
+  the keystore; the version in the menu's title, above the menu, and from `--version`; the same version everywhere the
+  README and the guides give it; and the same release key fingerprint everywhere they give it, which is also the
+  fingerprint of the key in `docs/release-key.asc`.
 * **8 for the build helper** (`seedlock-tools`): license expressions read ("(MIT OR Apache-2.0) AND ISC", the old
   "MIT/Apache-2.0"), and of their choices the license that asks the least taken (MIT before others that ask as
   little); license texts recognised by their wording (and a file that only names licenses not taken for one); an MIT
@@ -560,8 +569,11 @@ All re-runnable, see `tools/`:
 `tools/interactive_test.py` drives the real program in a pseudo-terminal: hidden input; the quiz; the generated
 password; the menu and its wording; the backups folder and the name prompt (including a taken name); choosing a backup
 by number, by name and by dropping the file (as Linux terminals, Apple's Terminal and `file://` addresses paste it);
-the online warning before the menu (a boxed warning naming the connection, then a reminder; offline said once; an
-unreadable routing table said plainly; the virtual machine warning); the live dice counter (it moves with every key; a
+that SeedLock works only offline (online, a box naming the connection and nothing else offered, Enter checking again
+and opening the menu once disconnected, q quitting with exit code 3; offline said once; an unreadable routing table
+and a command refused as well; the virtual machine's own explanation), and that it stops at once when the computer
+goes online while it is open: the screen and its scrollback cleared while a backup's words were shown, and the
+terminal put back while it read hidden typing or single keys; the live dice counter (it moves with every key; a
 non-die, Backspace, an arrow key, changing the last roll); Ctrl+C at a hidden prompt, after which the terminal shows
 what you type again; that no `--force` text appears anywhere; that typed secrets are never echoed; a window that is
 too small; a new backup shown as a QR code (menu 2), saved as a picture next to it first, where it is said before the
@@ -600,8 +612,9 @@ unset, the compact style and no note.
 * the QR window is also the **real ffplay** on a virtual X screen: a film of the screen is decoded picture by picture,
   the parts come in order and are reassembled by the Foundation UR library into exactly the signed PSBT, a backup's
   code reads back as exactly the backup text and its name line (where its picture is saved said before the window
-  opens), typing `t` switches to the terminal, Enter closes the window, and without a screen or without ffplay
-  SeedLock says why and draws the code in the terminal.
+  opens), typing `t` switches to the terminal, Enter closes the window, without a screen or without ffplay
+  SeedLock says why and draws the code in the terminal, and when the computer goes online while the window is open,
+  SeedLock stops and the window closes with it at once.
 
 The QR reader was chosen by measurement on simulated webcam pictures (108 pictures with blur, noise, tilt and small
 size): trying each picture as it is reads 50% of them; trying it also enlarged, sharpened and reduced reads 75%
@@ -711,13 +724,17 @@ By SeedLock's users:
   into Sparrow (**File > Import Wallet > Output Descriptor > Scan...**), which showed the same first addresses and
   named the keystore after the backup; and Sparrow's animated code scanned in menu 6 and the camera test (menu 9),
   with the QR reader now shared with the phone app.
-* **Version 0.2.1:** SeedLock's Android key, made with Android Studio's wizard ([The Android signing
-  key](#the-android-signing-key)), and the release APK that the wizard built and signed with it (APK Signature Scheme
-  v2), which `check-apk` passed: the app and its version, a release build, its permissions, its native libraries, its
-  code (all from the libraries its notices name), its license notices, no home folder's path, and the certificate's
-  fingerprint. On the Xiaomi Mi 8, that ready-made app installed in place of a SeedLock built before 0.2.1 (the
-  backups and multisig wallets saved as files, the old app uninstalled, then added again), a testnet payment signed
-  with it, the screen **About SeedLock and its licenses**, and a test build installed beside it as "SeedLock test".
+* **Version 0.2.1:** on the computer, the QR pictures saved before the QR code is shown, and said where (menus 1, 2, 5
+  and 8), menu 1 now saving the backup's picture too; on the phone, the prompt for a backup's password waiting while
+  the password was copied from a password manager on the phone, the clipboard emptied afterwards, and everything
+  closed after more than 5 minutes away. SeedLock's Android key, made with Android Studio's wizard ([The Android
+  signing key](#the-android-signing-key)), and the release APK that the wizard built and signed with it (APK Signature
+  Scheme v2), which `check-apk` passed: the app and its version, a release build, its permissions, its native
+  libraries, its code (all from the libraries its notices name), its license notices, no home folder's path, and the
+  certificate's fingerprint. On the Xiaomi Mi 8, that ready-made app installed in place of a SeedLock built before
+  0.2.1 (the backups and multisig wallets saved as files, the old app uninstalled, then added again), a testnet
+  payment signed with it, the screen **About SeedLock and its licenses**, and a test build installed beside it as
+  "SeedLock test".
 * Also confirmed: reading a backup from its QR code; the online warning on Linux; and multisig with Sparrow (2 of 3,
   native SegWit): the keys typed in or scanned by Sparrow's xpub button, the wallet's descriptor from a file, from an
   animated UR code and from static BBQr codes at two densities (in good light), and its transactions signed by one
@@ -740,8 +757,8 @@ You should know these:
    picker as a transaction's file, which works), nested and legacy multisig wallets, and other phones and Android
    versions than the Xiaomi Mi 8 with Android 10; see
    [The phone app, checked on a computer](#the-phone-app-checked-on-a-computer).
-7. The phone app's prompt for a backup's password that stays while the password is copied from a password manager on
-   the phone (at most 5 minutes), and the clipboard emptied afterwards: added in 0.2.1 after the tests above.
+7. That SeedLock works only offline (new in 0.3.0), on real computers and phones: the message, Enter checking again,
+   and the stop when a connection appears while it is open, on Linux, macOS and Windows, and on the phone.
 
 Menu 9 and `seedlock camera` let anyone check their own camera setup.
 
@@ -754,13 +771,14 @@ git clone https://github.com/Foundation-Devices/foundation-ur-py
 git clone https://github.com/coinkite/BBQr
 pip install pyqrcode            # for BBQr's reference code; where it fails (recent Ubuntu): pip install --use-pep517 pyqrcode
 npm install jsdom               # in the folder you run the tests from, or set JSDOM_DIR to its node_modules
-cargo build --release --locked
+cargo build --release --locked -p seedlock-cli --features test-hooks    # a build for the tests (see The online check)
 python3 tools/interactive_test.py target/release/seedlock --ur-lib foundation-ur-py
 python3 tools/qr_flow_test.py target/release/seedlock --ur-lib foundation-ur-py
 python3 tools/multisig_test.py target/release/seedlock --ur-lib foundation-ur-py --bbqr-lib BBQr/python
 ```
 
-They also need ffmpeg (with ffplay), Xvfb (a virtual X screen) and Node.js. The independent cross-checks:
+They also need ffmpeg (with ffplay), Xvfb (a virtual X screen) and Node.js. The independent cross-checks (with the
+same build; on a computer that is offline, any build of SeedLock works for them):
 
 ```sh
 pip install bip-utils embit mnemonic argon2-cffi pynacl
@@ -785,12 +803,25 @@ KOTLINC=/path/to/kotlinc/bin/kotlinc JNA_JAR=/path/to/jna.jar sh android/jvm-che
 sending anything: on Linux in `/proc/net/route` and `/proc/net/ipv6_route` (an IPv4 or IPv6 default route that is up,
 except the "unreachable" one Linux keeps on the loopback interface), on macOS in the output of
 `/sbin/route -n get default` (and `-inet6`), on Windows in the output of `route.exe print`, read in a way that does
-not depend on the system's language. The interfaces it goes through are named in the warning.
+not depend on the system's language. The interfaces it goes through are named in the message.
+
+SeedLock works only when this says offline (`offline.rs`). It checks before anything else: online, or where it
+cannot tell, the menu shows only what it found (Enter checks again, `q` quits) and a command stops; either way the
+exit code is 3, and only `--help` and `--version` answer (clap handles them first). Then a thread checks every
+second: online (or unknown three times in a row), it puts the terminal back as SeedLock found it (the settings saved
+at the start, in case hidden typing or the dice counter's single keys were being read), clears the screen and the
+scrollback, says why and ends the process, with which the QR window and the camera's programs end too. There is no
+option to work online.
 
 A virtual machine is recognised from the firmware description it shows: on Linux `/sys/class/dmi/id/sys_vendor` and
 `product_name`, on Windows `reg query HKLM\HARDWARE\DESCRIPTION\System\BIOS`, on macOS
-`sysctl -n kern.hv_vmm_present`. The tests stand in their own routing tables and firmware descriptions with
-`SEEDLOCK_TEST_NET_DIR`.
+`sysctl -n kern.hv_vmm_present`.
+
+The tests stand in their own routing tables and firmware descriptions, in the format of Linux's `/proc/net` on every
+system, with `SEEDLOCK_TEST_NET_DIR`. Only builds for testing read it: debug builds (`cargo test`) and builds with the
+feature `test-hooks` (`cargo build --release --locked -p seedlock-cli --features test-hooks`, which the test scripts
+need and check for). A released program cannot be made to believe that the computer is offline: that code is not in
+it, and `tools/build-release.sh` and `build-release.ps1` refuse a program that contains it.
 
 ### Camera scanning
 
@@ -871,7 +902,8 @@ this program.
 
 ```
 crates/seedlock-core      the library: mnemonic, entropy, backup format, wallet derivation, multisig, PSBT, QR frames (no I/O)
-crates/seedlock-cli       the `seedlock` program: prompts, menu, files, QR pictures and pages, camera scanning, online check
+crates/seedlock-cli       the `seedlock` program: prompts, menu, files, QR pictures and pages, camera scanning, and the
+                          online check that keeps it from working on a computer that is not offline (offline.rs)
 crates/seedlock-qr        reading QR codes in camera pictures, and making QR codes (no I/O; used by both programs)
 crates/seedlock-ffi       the phone app's library: what the app calls, made callable from Kotlin by UniFFI
 crates/uniffi-bindgen     writes the Kotlin code that calls seedlock-ffi (run by android/build-rust.sh)

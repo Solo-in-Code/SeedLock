@@ -10,25 +10,31 @@ import org.seedlock.ffi.backupNameIn
 import org.seedlock.ffi.checkBackupName
 import org.seedlock.ffi.seedlockVersion
 
-/** The first screen: whether the phone is offline, the backups on it, and what can be done. */
+/**
+ * The first screen: the backups on this phone, and what can be done. While the phone is online, it says only
+ * that SeedLock works only offline, and why the phone may be online (see [MainActivity.checkNetwork]).
+ */
 class HomeScreen(app: MainActivity) : Screen(app) {
     override val title = "SeedLock"
 
-    /** What the page says about the network, to see whether that changed (see [focused]). */
-    private var shownOnline: List<String>? = null
-
     override fun build(): View {
         val page = Page(app)
-        val online = onlineReasons(app)
-        shownOnline = online
+        val online = app.onlineNow
         if (online.isNotEmpty()) {
             page.warning(
-                "THIS PHONE MAY BE ONLINE. ${online.joinToString(" ")} Turn on airplane mode, and keep Wi-Fi, " +
-                    "mobile data and Bluetooth off, before you create, open or type a seed."
+                "SEEDLOCK WORKS ONLY OFFLINE. ${online.joinToString(" ")} Turn on airplane mode, and keep Wi-Fi, " +
+                    "mobile data and Bluetooth off. SeedLock checks every second, and opens as soon as the phone is offline."
             )
-        } else {
-            page.good("This phone is offline: airplane mode is on, and no network is connected.")
+            page.small(
+                "SeedLock cannot use the internet in any case: Android does not give it the permission to. It still " +
+                    "does nothing while the phone is online, because other apps could then send away what is on the " +
+                    "screen or typed; and if the phone goes online while SeedLock is open, it closes everything at once."
+            )
+            page.button("Check again") { app.checkNow() }
+            page.small("SeedLock ${seedlockVersion()}, phone app preview.")
+            return page.view
         }
+        page.good("This phone is offline: airplane mode is on, and no network is connected.")
         page.small("SeedLock cannot use the internet in any case: Android does not give it the permission to.")
 
         page.heading("Backups on this phone")
@@ -66,11 +72,6 @@ class HomeScreen(app: MainActivity) : Screen(app) {
         )
         page.button("About SeedLock and its licenses") { app.open(AboutScreen(app)) }
         return page.view
-    }
-
-    /** Airplane mode switched on or off in the notification shade, for example: the page says so at once. */
-    override fun focused() {
-        if (onlineReasons(app) != shownOnline) app.refresh()
     }
 }
 

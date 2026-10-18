@@ -12,6 +12,7 @@
 //! that was read and a bar along the bottom that fills as the transaction arrives.
 //! SeedLock itself never touches the network, and nothing from the camera is stored.
 
+use crate::children::Running;
 use crate::ui::{fail, Res};
 use seedlock_core::backup;
 use seedlock_core::bitcoin::Psbt;
@@ -19,7 +20,7 @@ use seedlock_core::psbt::{PsbtScanner, ScanUpdate};
 use std::ffi::{OsStr, OsString};
 use std::io::{BufRead, BufReader, ErrorKind, IsTerminal, Read, Write};
 use std::path::Path;
-use std::process::{Child, Command, Stdio};
+use std::process::{Command, Stdio};
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError, SyncSender, TrySendError};
 use std::sync::{Arc, Mutex};
 use std::thread;
@@ -507,14 +508,15 @@ pub(crate) fn collect_messages(stderr: std::process::ChildStderr) -> Arc<Mutex<S
 /// A running ffmpeg that sends camera pictures, and (when possible) an ffplay window that
 /// shows them. Both are stopped when this is dropped.
 pub struct Camera {
-    child: Child,
+    /// ffmpeg, kept running while the camera is in use (ended when this is dropped)
+    _ffmpeg: Running,
     pictures: Receiver<Vec<u8>>,
     first: Option<Vec<u8>>,
     pub width: usize,
     pub height: usize,
     log: Arc<Mutex<String>>,
     shared: Arc<Shared>,
-    window: Option<Child>,
+    window: Option<Running>,
     /// Why there is no preview window (`None`: there is one, or none was asked for).
     pub preview_note: Option<String>,
 }
@@ -577,6 +579,7 @@ impl Camera {
             .map_err(|e| format!("cannot start ffmpeg: {e}"))?;
         let stdout = child.stdout.take().ok_or("ffmpeg gave no output")?;
         let stderr = child.stderr.take().ok_or("ffmpeg gave no messages")?;
+        let child = Running::keep(child);
         let log = collect_messages(stderr);
         let shared = Arc::new(Shared { overlay: Mutex::new(Overlay::default()), preview: Mutex::new(None) });
 
@@ -599,10 +602,9 @@ impl Camera {
         });
 
         match pictures.recv_timeout(Duration::from_secs(12)) {
-            Ok(first) => Ok(Camera { child, pictures, first: Some(first), width, height, log, shared, window: None, preview_note: None }),
+            Ok(first) => Ok(Camera { _ffmpeg: child, pictures, first: Some(first), width, height, log, shared, window: None, preview_note: None }),
             Err(_) => {
-                let _ = child.kill();
-                let _ = child.wait();
+                drop(child); // ffmpeg is ended and waited for
                 thread::sleep(Duration::from_millis(200)); // let the error text arrive
                 let text = log.lock().map(|t| t.trim().to_string()).unwrap_or_default();
                 Err(if text.is_empty() { "no picture arrived within 12 seconds".to_string() } else { text })
@@ -632,6 +634,7 @@ impl Camera {
             })?;
         let stdin = child.stdin.take().ok_or("ffplay gave no input")?;
         let stderr = child.stderr.take().ok_or("ffplay gave no messages")?;
+        let child = Running::keep(child);
         let log = collect_messages(stderr);
         let (send, pictures) = mpsc::sync_channel::<Vec<u8>>(1);
         thread::spawn(move || {
@@ -644,7 +647,7 @@ impl Camera {
         });
         // If ffplay cannot open a window it stops within a moment: say why.
         thread::sleep(Duration::from_millis(600));
-        if let Ok(Some(_)) = child.try_wait() {
+        if child.ended() {
             thread::sleep(Duration::from_millis(100));
             let text = log.lock().map(|t| t.trim().to_string()).unwrap_or_default();
             return Err(if text.is_empty() { "ffplay stopped at once".to_string() } else { text });
@@ -694,12 +697,7 @@ impl Drop for Camera {
         if let Ok(mut slot) = self.shared.preview.lock() {
             *slot = None;
         }
-        if let Some(window) = self.window.as_mut() {
-            let _ = window.kill();
-            let _ = window.wait();
-        }
-        let _ = self.child.kill();
-        let _ = self.child.wait();
+        drop(self.window.take()); // the preview window is ended and waited for first, then ffmpeg (_ffmpeg)
     }
 }
 

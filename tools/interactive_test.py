@@ -12,9 +12,10 @@ the static QR is decoded and parsed by embit.
 
     pip install pexpect opencv-python-headless numpy cbor2 embit mnemonic pyte
     git clone https://github.com/Foundation-Devices/foundation-ur-py
+    cargo build --release --locked -p seedlock-cli --features test-hooks    # a build for the tests: it reads their stand-in networks
     python3 interactive_test.py ../target/release/seedlock --ur-lib foundation-ur-py
 """
-import argparse, io, os, re, sys, tempfile, time
+import argparse, io, os, re, subprocess, sys, tempfile, time
 
 import cbor2, cv2, numpy as np, pexpect, pyte
 from embit import bip32, bip39, script
@@ -26,6 +27,25 @@ ap.add_argument("bin", nargs="?", default="seedlock")
 ap.add_argument("--ur-lib", default=os.environ.get("FOUNDATION_UR_PY"))
 args = ap.parse_args()
 BIN = os.path.abspath(args.bin) if os.path.exists(args.bin) else args.bin
+
+
+def check_test_build(program):
+    """These tests show SeedLock stand-in networks (offline, online). Only a build for testing reads them: a released
+    program has no way to be made to believe that the computer is offline. Stop at once, saying how to build it."""
+    probe = tempfile.mkdtemp()
+    with open(os.path.join(probe, "route"), "w") as f:
+        f.write("Iface\tDestination\tGateway \tFlags\tRefCnt\tUse\tMetric\tMask\t\tMTU\tWindow\tIRTT\n"
+                "probe9\t00000000\t0101A8C0\t0003\t0\t0\t600\t00000000\t0\t0\t0\n")
+    open(os.path.join(probe, "ipv6_route"), "w").close()
+    r = subprocess.run([program, "password"], env=dict(os.environ, SEEDLOCK_TEST_NET_DIR=probe), capture_output=True, text=True,
+                       stdin=subprocess.DEVNULL)
+    if "probe9" not in r.stderr:
+        sys.exit(f"{program} is not a build for these tests: it does not read the stand-in networks they show it. Build it with\n"
+                 "  cargo build --release --locked -p seedlock-cli --features test-hooks\n"
+                 "and give target/release/seedlock (the released programs have no such way around the offline check).")
+
+
+check_test_build(BIN)
 if args.ur_lib:
     sys.path.insert(0, os.path.abspath(args.ur_lib))
 try:
@@ -448,61 +468,139 @@ backup_line = [l for l in open(os.path.join(work, "seedlocker backups", second +
 assert grid_text(grid) == f"{backup_line}\n# name: {second}", "the backup text, then its name on a line of its own (since 0.2.0)"
 print(f"F4c) TERM_PROGRAM=Apple_Terminal, backup QR (seedlock qr): the note, then the full style ({len(grid)} lines), decoded == the backup text and its name line: OK")
 
-# ---------------------------------------------------------------- H) is this computer online? (said before the menu)
-s = Session(env=dict(os.environ, SEEDLOCK_TEST_NET_DIR=os.path.join(NET, "online")))
-s.text("WARNING: THIS COMPUTER IS ONLINE")
-s.text("It is connected to a network (through wlan0).")
+# ---------------------------------------------------------------- H) SeedLock works only offline (checked before anything else)
+import shutil as _sh, signal, termios
+ONLINE_ENV = dict(os.environ, SEEDLOCK_TEST_NET_DIR=os.path.join(NET, "online"))
+CHECK_AGAIN = "Press Enter to check again, or type q to quit: "
+s = Session(env=ONLINE_ENV)
+s.text("SEEDLOCK WORKS ONLY OFFLINE")
+s.text("This computer is connected to a network (through wlan0).")
 s.text("unplug any network cable.")
-s.expect(r"\n> ")
+s.text(CHECK_AGAIN)
 box = s.log.getvalue()
 box = box[box.index("\x1b[1m┌"): box.index("┘\x1b[0m") + len("┘\x1b[0m")]
 box_lines = [ANSI.sub("", l).rstrip("\r") for l in box.split("\n") if l.strip()]
 assert len({len(l) for l in box_lines}) == 1 and all(l[0] in "┌│└" and l[-1] in "┐│┘" for l in box_lines), box_lines
-s.send("x"); s.text("Please choose one of the numbers above.")
-s.text("(Reminder: this computer is still ONLINE, through wlan0.)")        # each time the menu comes back
+s.send(); s.text("Still connected (through wlan0).")                     # Enter checks again: one line, not the box again
+s.text(CHECK_AGAIN); s.send("q"); s.expect(pexpect.EOF); s.c.close()
+assert s.c.exitstatus == 3, s.c.exitstatus
+assert "What would you like to do?" not in s.log.getvalue() and s.log.getvalue().count("SEEDLOCK WORKS ONLY OFFLINE") == 1
+
+
+def switching():
+    """A stand-in network that starts offline, and that the test can switch on while SeedLock runs."""
+    net = tempfile.mkdtemp()
+    for name in ("route", "ipv6_route"):
+        _sh.copy(os.path.join(NET, "offline", name), net)
+    return net
+
+
+def go_online(net):
+    _sh.copy(os.path.join(NET, "online", "route"), os.path.join(net, "route"))
+
+
+net = switching(); go_online(net)                                          # online at the start ...
+s = Session(env=dict(os.environ, SEEDLOCK_TEST_NET_DIR=net))
+s.text(CHECK_AGAIN)
+_sh.copy(os.path.join(NET, "offline", "route"), os.path.join(net, "route"))  # ... then disconnected: Enter opens the menu
+s.send(); s.text("This computer is offline: no network connection was found.")
 s.expect(r"\n> "); s.send("q"); s.expect(pexpect.EOF)
-assert s.log.getvalue().count("WARNING: THIS COMPUTER IS ONLINE") == 1, "the full warning once, then a reminder"
-s = Session()                                                             # offline (these tests' stand-in)
+s = Session()                                                             # offline from the start (these tests' stand-in)
 s.text("This computer is offline: no network connection was found.")
 s.expect(r"\n> "); s.send("x"); s.expect(r"\n> "); s.send("q"); s.expect(pexpect.EOF)
-assert s.log.getvalue().count("This computer is offline") == 1 and "ONLINE" not in s.log.getvalue()
+assert s.log.getvalue().count("This computer is offline") == 1 and "ONLY OFFLINE" not in s.log.getvalue()
 s = Session(env=dict(os.environ, SEEDLOCK_TEST_NET_DIR="/nonexistent/seedlock"))
-s.text("SeedLock cannot tell whether this computer is online (the routing table could not be read).")
-s.text("Make sure Wi-Fi is off and no network cable is plugged in.")
-s.expect(r"\n> "); s.send("q"); s.expect(pexpect.EOF)
-print("H) before the menu: an online computer gets a boxed warning naming its connection, then a reminder each time the menu comes back; "
-      "offline is said once; a routing table that cannot be read is said plainly: OK")
+s.text("SEEDLOCK WORKS ONLY OFFLINE")
+s.text(CHECK_AGAIN)
+flat = " ".join(" ".join(l.strip(" │\r") for l in ANSI.sub("", s.log.getvalue()).splitlines()).split())
+assert "SeedLock cannot tell whether this computer is online (the routing table could not be read)." in flat, flat[-600:]
+s.send("q"); s.expect(pexpect.EOF)
+s = Session(["encrypt"], env=ONLINE_ENV)                                 # a command stops before it asks anything
+s.text("SEEDLOCK WORKS ONLY OFFLINE"); s.expect(pexpect.EOF); s.c.close()
+assert s.c.exitstatus == 3 and "hidden" not in s.log.getvalue()
+print("H) SeedLock works only offline: online, a box names the connection and nothing else is offered; Enter checks again "
+      "(one line while still connected); once disconnected, Enter opens the menu; q quits (exit code 3); offline is said "
+      "once; where it cannot tell, it does not work either; a command stops before it asks anything: OK")
 
 # ---------------------------------------------------------------- H2) in a virtual machine: its network adapter always looks connected
-import shutil as _sh
 for _state in ("online", "offline"):
     _vm = os.path.join(NET, _state + "-vm")
     _sh.copytree(os.path.join(NET, _state), _vm)
     open(os.path.join(_vm, "sys_vendor"), "w").write("QEMU\n")                      # the firmware description a QEMU/KVM guest shows
     open(os.path.join(_vm, "product_name"), "w").write("Standard PC (Q35 + ICH9, 2009)\n")
 s = Session(env=dict(os.environ, SEEDLOCK_TEST_NET_DIR=os.path.join(NET, "online-vm")))
-s.text("WARNING: THIS VIRTUAL MACHINE HAS A NETWORK CONNECTION")
-s.expect(r"\n> ")
+s.text("SEEDLOCK WORKS ONLY OFFLINE")
+s.text(CHECK_AGAIN)
 vm_text = ANSI.sub("", s.log.getvalue())
 flat = " ".join(l.strip(" │\r") for l in vm_text.splitlines())
 for wanted in ("SeedLock is running in a virtual machine (QEMU/KVM) whose network adapter is switched on (through wlan0).",
                "even while the real computer is offline", "SeedLock cannot see the real computer's connection",
-               "turn off this virtual machine's network adapter", "then SeedLock shows it as offline"):
+               "Turn off this virtual machine's network adapter", "then SeedLock sees it as offline"):
     assert wanted in " ".join(flat.split()), (wanted, flat[-900:])
-assert "THIS COMPUTER IS ONLINE" not in vm_text
-s.send("x"); s.text("Please choose one of the numbers above.")
-s.text("(Reminder: this virtual machine's network adapter is still on, through wlan0.)")
-s.expect(r"\n> "); s.send("q"); s.expect(pexpect.EOF)
+assert "This computer is connected" not in vm_text
+s.send("q"); s.expect(pexpect.EOF)
 s = Session(env=dict(os.environ, SEEDLOCK_TEST_NET_DIR=os.path.join(NET, "offline-vm")))
 s.text("This computer is offline: no network connection was found.")       # adapter off: offline, as on any computer
 s.expect(r"\n> "); s.send("q"); s.expect(pexpect.EOF)
-assert "VIRTUAL MACHINE" not in s.log.getvalue()
+assert "virtual machine" not in s.log.getvalue()
 print("H2) in a virtual machine (a QEMU firmware description): the box says it is a virtual machine whose adapter always looks "
-      "connected, that the real computer's connection cannot be seen from inside, and to turn the adapter off; then a reminder; "
-      "with the adapter off it is simply offline: OK")
+      "connected, that the real computer's connection cannot be seen from inside, and to turn the adapter off; with the "
+      "adapter off it is simply offline: OK")
+
+# ---------------------------------------------------------------- H3) online while SeedLock is open: it clears the screen and stops at once
+STOPPED = "SEEDLOCK STOPPED: THIS COMPUTER IS NOT OFFLINE"
+# (1) a backup's words on the screen (menu 3)
+net = switching()
+s = Session(env=dict(os.environ, SEEDLOCK_TEST_NET_DIR=net))
+s.expect(r"\n> "); s.send("3")
+s.expect(r"Choose a backup: number 1-\d+, type a name or path"); s.send("wallet-one")
+s.expect(r"Backup password \(hidden\): "); s.send(pw1)
+s.expect("Press Enter to clear the screen")
+assert grid_words(s.before) == words1
+started = time.time()
+go_online(net)
+s.text(STOPPED)
+waited = time.time() - started
+s.expect(pexpect.EOF); s.c.close()
+assert s.c.exitstatus == 3 and waited < 3, (s.c.exitstatus, waited)
+log = s.log.getvalue()
+assert log.rindex("\x1b[2J\x1b[3J") > log.index("Press Enter to clear the screen"), "the screen and its scrollback cleared after the words"
+screen = pyte.Screen(150, 70); pyte.Stream(screen).feed(log)
+assert grid_words("\n".join(screen.display)) == [], "no word is left on the screen"
+flat = " ".join(" ".join(l.strip(" │\r") for l in ANSI.sub("", log[log.rindex("\x1b[2J"):]).splitlines()).split())
+assert "A network connection appeared while SeedLock was open (through wlan0)." in flat and "then start SeedLock again" in flat, flat
+# (2) while hidden typing is read (a seed's words): the terminal shows what is typed again
+net = switching()
+s = Session(["encrypt"], env=dict(os.environ, SEEDLOCK_TEST_NET_DIR=net))
+s.text("Enter your mnemonic words separated by spaces (hidden as you type):")
+s.expect(r"\n> ")
+time.sleep(0.3)                                       # the terminal is now switched to hidden typing
+s.c.send("zoo zoo")
+go_online(net)
+s.text(STOPPED); s.expect(pexpect.EOF)
+modes = termios.tcgetattr(s.c.child_fd)[3]
+s.c.close()
+assert s.c.exitstatus == 3 and modes & termios.ECHO and modes & termios.ICANON and modes & termios.ISIG, (s.c.exitstatus, modes)
+assert "zoo zoo" not in s.log.getvalue()
+# (3) while single keys are read (the dice counter)
+net = switching()
+s = Session(env=dict(os.environ, SEEDLOCK_TEST_NET_DIR=net))
+s.expect(r"\n> "); s.send("1")
+s.expect(r"\[24\]: "); s.send("12")
+s.expect(r"\[y/N\] "); s.send("y")
+s.expect("Press Enter to continue"); s.send()
+s.text("[0 of 50 rolls] > ")
+s.c.send("3"); s.text("[1 of 50 rolls] > ")
+go_online(net)
+s.text(STOPPED); s.expect(pexpect.EOF)
+modes = termios.tcgetattr(s.c.child_fd)[3]
+s.c.close()
+assert s.c.exitstatus == 3 and modes & termios.ECHO and modes & termios.ICANON and modes & termios.ISIG, (s.c.exitstatus, modes)
+print(f"H3) the computer goes online while SeedLock is open: within {waited:.1f} s it clears the screen and its scrollback "
+      "(no word left), says why and stops (exit code 3); while it read hidden typing or single keys, the terminal is put "
+      "back first (it shows what is typed again): OK")
 
 # ---------------------------------------------------------------- I) Ctrl+C at a hidden prompt puts the terminal back
-import signal, termios
 s = Session(["encrypt"])
 s.text("Enter your mnemonic words separated by spaces (hidden as you type):")
 s.expect(r"\n> ")

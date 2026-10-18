@@ -84,6 +84,11 @@ try {
             }
         }
     }
+    # A released program works only offline, with no way around it: the stand-in network that the test builds read
+    # (crates/seedlock-cli, feature test-hooks) must not be in it.
+    if ($text.IndexOf('SEEDLOCK_TEST_NET_DIR', [StringComparison]::Ordinal) -ge 0) {
+        Fail 'The new program can be made to believe that the computer is offline (it was built for the tests): something went wrong.'
+    }
 
     $sum = (Get-FileHash -Algorithm SHA256 -LiteralPath $out).Hash.ToLowerInvariant()
     Write-Host ''

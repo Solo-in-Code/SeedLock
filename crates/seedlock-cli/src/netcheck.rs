@@ -2,7 +2,8 @@
 //! looks at the computer's own routing table, to see whether there is a way out to other networks
 //! (a "default route", which a computer has as soon as Wi-Fi or a cable connects it). Nothing is
 //! sent or received. On Linux the table is read from /proc/net; on macOS and Windows the system's
-//! `route` program is asked; on other systems SeedLock cannot tell.
+//! `route` program is asked; on other systems SeedLock cannot tell. SeedLock works only when this
+//! says offline (offline.rs).
 
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
@@ -18,10 +19,11 @@ pub enum NetState {
 
 /// Check now.
 pub fn state() -> NetState {
+    if let Some(dir) = stand_in() {
+        return linux_state(&dir);
+    }
     if cfg!(target_os = "linux") {
-        // SEEDLOCK_TEST_NET_DIR lets the tests stand in their own routing tables.
-        let dir = std::env::var_os("SEEDLOCK_TEST_NET_DIR").map(PathBuf::from).unwrap_or_else(|| PathBuf::from("/proc/net"));
-        linux_state(&dir)
+        linux_state(Path::new("/proc/net"))
     } else if cfg!(target_os = "macos") {
         macos_state()
     } else if cfg!(target_os = "windows") {
@@ -29,6 +31,21 @@ pub fn state() -> NetState {
     } else {
         NetState::Unknown("SeedLock cannot check this on this system yet".to_string())
     }
+}
+
+/// The tests' stand-in routing tables: the folder SEEDLOCK_TEST_NET_DIR names, with `route` and `ipv6_route`
+/// in the format of Linux's /proc/net (on every system), and `sys_vendor` and `product_name` for
+/// [`virtual_machine`]. Only builds for testing read it: debug builds (`cargo test`) and builds with the feature
+/// `test-hooks` (the test scripts in tools/). A released program has no such way to be made to believe that the
+/// computer is offline: this code is not even in it.
+#[cfg(any(debug_assertions, feature = "test-hooks"))]
+fn stand_in() -> Option<PathBuf> {
+    std::env::var_os("SEEDLOCK_TEST_NET_DIR").map(PathBuf::from)
+}
+
+#[cfg(not(any(debug_assertions, feature = "test-hooks")))]
+fn stand_in() -> Option<PathBuf> {
+    None
 }
 
 fn add(found: &mut Vec<String>, interface: &str) {
@@ -169,12 +186,11 @@ fn windows_default_routes(output: &str) -> Vec<String> {
 /// while the real computer is offline, and nothing inside can see the real computer's connection.
 /// Returns the virtual machine program's name, read from the firmware description the virtual
 /// machine shows (no privileges needed, nothing sent): /sys/class/dmi/id on Linux, the registry on
-/// Windows (`reg query`), sysctl on macOS. With SEEDLOCK_TEST_NET_DIR set, the tests' stand-in files
-/// `sys_vendor` and `product_name` in that folder are read instead (none: not a virtual machine).
+/// Windows (`reg query`), sysctl on macOS. In a build for testing, the stand-in files `sys_vendor` and
+/// `product_name` of [`stand_in`] are read instead (none: not a virtual machine).
 pub fn virtual_machine() -> Option<String> {
     let read_in = |dir: &Path, name: &str| std::fs::read_to_string(dir.join(name)).unwrap_or_default();
-    if let Some(dir) = std::env::var_os("SEEDLOCK_TEST_NET_DIR") {
-        let dir = PathBuf::from(dir);
+    if let Some(dir) = stand_in() {
         return vm_from_firmware(&read_in(&dir, "sys_vendor"), &read_in(&dir, "product_name"));
     }
     if cfg!(target_os = "linux") {

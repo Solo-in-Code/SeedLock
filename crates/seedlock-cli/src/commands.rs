@@ -1,7 +1,6 @@
 //! Implementation of every command, plus the interactive menu.
 
 use crate::cli::*;
-use crate::netcheck::{self, NetState};
 use crate::{qrimg, qrwindow, scan};
 use crate::ui::{self, fail, Res};
 use qrcode::{EcLevel, QrCode};
@@ -1284,74 +1283,18 @@ pub fn final_word() -> Res<()> {
 // Interactive menu
 // ===========================================================================
 
-/// Say whether this computer is connected to a network. The full warning is shown when it is
-/// online for the first time (or again after it was offline); while it stays online, a reminder.
-fn network_warning(last: &mut Option<u8>) {
-    let now = match netcheck::state() {
-        NetState::Online(interfaces) => {
-            let through = interfaces.join(", ");
-            let vm = netcheck::virtual_machine();
-            if *last == Some(1) {
-                match vm {
-                    Some(_) => eprintln!("\n(Reminder: this virtual machine's network adapter is still on, through {through}.)"),
-                    None => eprintln!("\n(Reminder: this computer is still ONLINE, through {through}.)"),
-                }
-            } else if let Some(vm) = vm {
-                let first = format!(
-                    "SeedLock is running in a virtual machine ({vm}) whose network adapter is switched on (through {through}). A \
-                     virtual machine's network adapter always looks connected, even while the real computer is offline, and it \
-                     is online again as soon as the real computer is: from in here, SeedLock cannot see the real computer's connection."
-                );
-                ui::boxed_note(
-                    "WARNING: THIS VIRTUAL MACHINE HAS A NETWORK CONNECTION",
-                    &[
-                        first.as_str(),
-                        "SeedLock itself never uses the network, but while a connection is possible, other programs could see your \
-                         seed words or your password. Before you create, open or type a seed, turn off this virtual machine's network \
-                         adapter (in the virtual machine program's settings, or in this system): then SeedLock shows it as offline.",
-                    ],
-                );
-            } else {
-                let first = format!(
-                    "It is connected to a network (through {through}). SeedLock itself never uses the network, but on a \
-                     computer that is online, other programs could see your seed words or your password while they are on \
-                     the screen or being typed."
-                );
-                ui::boxed_note(
-                    "WARNING: THIS COMPUTER IS ONLINE",
-                    &[
-                        first.as_str(),
-                        "Disconnect it before you create, open or type a seed: turn off Wi-Fi and unplug any network cable. \
-                         Best of all, use a computer that is never connected.",
-                    ],
-                );
-            }
-            1
-        }
-        NetState::Offline => {
-            if *last != Some(0) {
-                eprintln!("\nThis computer is offline: no network connection was found.");
-            }
-            0
-        }
-        NetState::Unknown(why) => {
-            if *last != Some(2) {
-                eprintln!("\nSeedLock cannot tell whether this computer is online ({why}).");
-                eprintln!("Make sure Wi-Fi is off and no network cable is plugged in.");
-            }
-            2
-        }
-    };
-    *last = Some(now);
-}
-
-pub fn menu() -> Res<()> {
+/// The menu's title, shown first (before SeedLock checks that the computer is offline).
+pub fn menu_title() {
     // The version comes from Cargo.toml ([workspace.package] version), the one place it is set.
     eprintln!("\n=== SeedLock {}: offline Bitcoin seed tool ===", env!("CARGO_PKG_VERSION"));
-    eprintln!("Use this on a computer that is NOT connected to the internet.");
-    let mut network = None;
+    eprintln!("It works only on a computer that is not connected to any network.");
+}
+
+/// The menu. SeedLock got here only because the computer is offline (offline.rs), and it stops at once
+/// should that change.
+pub fn menu() -> Res<()> {
+    eprintln!("\nThis computer is offline: no network connection was found.");
     loop {
-        network_warning(&mut network);
         eprintln!("\nWhat would you like to do?");
         eprintln!("  1) Create a new seed and an encrypted backup");
         eprintln!("  2) Encrypt a seed I already have (words -> backup file)");

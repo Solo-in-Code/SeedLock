@@ -15,10 +15,12 @@ compile_error!(
      RUSTFLAGS=\"-C target-feature=+crt-static\"."
 );
 
+mod children;
 mod cli;
 mod commands;
 mod qrimg;
 mod netcheck;
+mod offline;
 mod qrwindow;
 mod scan;
 mod ui;
@@ -32,6 +34,16 @@ fn main() -> ExitCode {
     #[cfg(windows)]
     ui::enable_terminal_codes();
     let cli = Cli::parse();
+    ui::remember_terminal();
+    let menu = cli.command.is_none();
+    if menu {
+        commands::menu_title();
+    }
+    // SeedLock works only on a computer that is offline: checked before anything else, then every second.
+    if let Err(code) = offline::require(menu) {
+        return code;
+    }
+    offline::watch();
     let done = |r: ui::Res<()>| r.map(|_| ExitCode::SUCCESS);
     let result = match cli.command {
         None => done(commands::menu()),

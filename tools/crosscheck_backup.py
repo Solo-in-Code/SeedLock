@@ -10,6 +10,22 @@ import hashlib, os, subprocess, tempfile, secrets, sys
 from mnemonic import Mnemonic
 BIN = os.path.abspath(sys.argv[1]) if len(sys.argv) > 1 else "seedlock"
 REC = os.path.join(os.path.dirname(os.path.abspath(__file__)), "recover.py")
+
+def offline_stand_in(program):
+    """SeedLock works only offline. These checks show it a stand-in offline computer, which a build for the tests reads
+    (cargo build --release --locked -p seedlock-cli --features test-hooks); a released program reads the real network,
+    and then works only on a computer that is offline. Stop at once, saying so, when it refuses to work."""
+    net = tempfile.mkdtemp()
+    with open(os.path.join(net, "route"), "w") as f:
+        f.write("Iface\tDestination\tGateway \tFlags\tRefCnt\tUse\tMetric\tMask\t\tMTU\tWindow\tIRTT\n")
+    open(os.path.join(net, "ipv6_route"), "w").close()
+    os.environ["SEEDLOCK_TEST_NET_DIR"] = net
+    if subprocess.run([program, "password"], capture_output=True, stdin=subprocess.DEVNULL).returncode == 3:
+        sys.exit(f"{program} does not work here, because this computer is not offline. Run these checks on a computer that "
+                 "is offline, or with a build for the tests:\n  cargo build --release --locked -p seedlock-cli --features test-hooks")
+
+
+offline_stand_in(BIN)
 os.chdir(tempfile.mkdtemp())
 mn = Mnemonic("english")
 

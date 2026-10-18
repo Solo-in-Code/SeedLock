@@ -3,12 +3,13 @@
 //! pictures are sent through a pipe to **ffplay**, which comes with ffmpeg and already shows the
 //! camera preview. Nothing is written to disk.
 
+use crate::children::Running;
 use crate::qrimg;
 use crate::scan::{collect_messages, ffplay_program};
 use qrcode::QrCode;
 use std::ffi::OsStr;
 use std::io::{ErrorKind, Write};
-use std::process::{Child, Command, Stdio};
+use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::thread::{self, JoinHandle};
@@ -21,9 +22,10 @@ const RATE: u64 = 10;
 const TARGET_SIDE: usize = 640;
 
 /// A window that shows QR codes one after the other, in a loop. It closes when this is dropped,
-/// and by itself if SeedLock stops for any reason (ffplay ends when its input ends).
+/// at once when SeedLock stops at once (children.rs), and by itself if SeedLock stops for any other reason
+/// (ffplay ends when its input ends).
 pub struct QrWindow {
-    child: Child,
+    child: Option<Running>,
     stop: Arc<AtomicBool>,
     feeder: Option<JoinHandle<()>>,
 }
@@ -66,6 +68,7 @@ impl QrWindow {
             })?;
         let mut input = child.stdin.take().ok_or("ffplay gave no input")?;
         let log = collect_messages(child.stderr.take().ok_or("ffplay gave no messages")?);
+        let child = Running::keep(child);
         let stop = Arc::new(AtomicBool::new(false));
         let repeats = (interval_ms * RATE / 1000).max(1);
         let feeder = {
@@ -85,22 +88,21 @@ impl QrWindow {
         };
         // A window that cannot be opened makes ffplay stop within a moment: say why.
         thread::sleep(Duration::from_millis(700));
-        if let Ok(Some(_)) = child.try_wait() {
+        if child.ended() {
             stop.store(true, Ordering::SeqCst);
             let _ = feeder.join();
             thread::sleep(Duration::from_millis(100)); // let the error text arrive
             let text = log.lock().map(|t| t.trim().to_string()).unwrap_or_default();
             return Err(if text.is_empty() { "ffplay stopped at once".to_string() } else { text });
         }
-        Ok(QrWindow { child, stop, feeder: Some(feeder) })
+        Ok(QrWindow { child: Some(child), stop, feeder: Some(feeder) })
     }
 }
 
 impl Drop for QrWindow {
     fn drop(&mut self) {
         self.stop.store(true, Ordering::SeqCst);
-        let _ = self.child.kill();
-        let _ = self.child.wait();
+        drop(self.child.take()); // ffplay is ended and waited for
         if let Some(feeder) = self.feeder.take() {
             let _ = feeder.join();
         }
@@ -173,6 +175,23 @@ mod tests {
             let why = QrWindow::open_with(failing.as_os_str(), true, "t", &codes, 300).err().expect("no screen");
             assert!(why.contains("graphical screen"), "{why}");
         }
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn kept_programs_end_when_dropped_and_all_at_once_before_seedlock_stops() {
+        // a registry of its own, so that ending them all does not touch the other tests' windows
+        static TEST: crate::children::Registry = crate::children::Registry::new();
+        let (dir, sleeper) = script("kept", "#!/bin/sh\nexec sleep 30\n");
+        let start = || Command::new(&sleeper).stdin(Stdio::null()).spawn().unwrap();
+        let one = TEST.keep(start());
+        assert!(!one.ended());
+        drop(one); // ended and waited for
+        let (a, b) = (TEST.keep(start()), TEST.keep(start()));
+        assert!(!a.ended() && !b.ended());
+        TEST.end_all(); // what offline.rs does with SeedLock's own, just before SeedLock stops
+        thread::sleep(Duration::from_millis(300));
+        assert!(a.ended() && b.ended(), "all ended at once, not when their input ends");
         std::fs::remove_dir_all(&dir).ok();
     }
 }

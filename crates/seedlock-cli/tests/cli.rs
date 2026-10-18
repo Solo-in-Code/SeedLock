@@ -38,6 +38,11 @@ fn run_env(cwd: Option<&Path>, envs: &[(&str, &str)], args: &[&str], stdin: &str
     if let Some(dir) = cwd {
         command.current_dir(dir);
     }
+    // SeedLock works only offline: unless a test brings its own stand-in network, it is shown an offline computer,
+    // whatever the network of the computer that runs the tests
+    if !envs.iter().any(|(name, _)| *name == "SEEDLOCK_TEST_NET_DIR") {
+        command.env("SEEDLOCK_TEST_NET_DIR", default_offline_net());
+    }
     command.envs(envs.iter().copied());
     let mut child = command
         .args(args)
@@ -388,6 +393,56 @@ fn offline_net(name: &str) -> PathBuf {
     net
 }
 
+/// The offline stand-in that every run gets unless its test brings another (made once for all the tests).
+fn default_offline_net() -> &'static Path {
+    static NET: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
+    NET.get_or_init(|| offline_net("default-net"))
+}
+
+/// A stand-in routing table of a computer that is online, through `interface`.
+fn online_net(name: &str, interface: &str) -> PathBuf {
+    let net = offline_net(name);
+    std::fs::write(
+        net.join("route"),
+        format!("Iface\tDestination\tGateway \tFlags\tRefCnt\tUse\tMetric\tMask\t\tMTU\tWindow\tIRTT\n{interface}\t00000000\t0101A8C0\t0003\t0\t0\t600\t00000000\t0\t0\t0\n"),
+    )
+    .unwrap();
+    net
+}
+
+/// SeedLock works only offline: online, or where it cannot tell, every command stops before it does anything
+/// (exit code 3) and says why; the menu says so too and quits on q. Only --help and --version still answer.
+#[test]
+fn seedlock_works_only_offline() {
+    let dir = tmp("onlyoffline");
+    let online = online_net("onlyoffline-net", "wlan7");
+    let on = [("SEEDLOCK_TEST_NET_DIR", s(&online))];
+    for args in [&["password"][..], &["new", "--kdf", "light"], &["encrypt", "--kdf", "light"], &["qr", "x"], &["camera"]] {
+        let o = run_env(Some(&dir), &on, args, &format!("{WORDS}\n{PW}\n{PW}\n"));
+        assert_eq!(o.status.code(), Some(3), "{args:?}: {}", err(&o));
+        let said = err(&o);
+        assert!(said.contains("SEEDLOCK WORKS ONLY OFFLINE") && said.contains("through wlan7"), "{args:?}: {said}");
+        assert!(out(&o).is_empty() && !said.contains("hidden"), "nothing asked, nothing given: {args:?}");
+    }
+    assert!(!dir.join("seedlocker backups").exists(), "nothing was saved");
+    // the menu: what it found, then q quits; nothing of the menu is offered
+    let o = run_env(Some(&dir), &on, &[], "q\n");
+    assert_eq!(o.status.code(), Some(3));
+    assert!(err(&o).contains("SEEDLOCK WORKS ONLY OFFLINE") && !err(&o).contains("What would you like to do?"), "{}", err(&o));
+    // where it cannot tell (no routing table to read), the same
+    let o = run_env(Some(&dir), &[("SEEDLOCK_TEST_NET_DIR", "/nonexistent/seedlock-net")], &["password"], "");
+    assert_eq!(o.status.code(), Some(3));
+    assert!(err(&o).contains("SeedLock cannot tell whether this computer is online"), "{}", err(&o));
+    // --version and --help still answer
+    for args in [&["--version"][..], &["--help"]] {
+        let o = run_env(Some(&dir), &on, args, "");
+        assert!(o.status.success() && !out(&o).is_empty(), "{args:?}");
+    }
+    // and offline, the same command works
+    let o = run_in(Some(&dir), &["password"], "");
+    assert!(o.status.success() && out(&o).trim().split('-').count() == 8, "{}", err(&o));
+}
+
 #[test]
 fn menu_5_shows_the_wallet_for_sparrow_as_a_qr_code_that_names_the_keystore() {
     let dir = tmp("menu5");
@@ -615,11 +670,7 @@ fn signs_a_registered_2_of_3_multisig_one_cosigner_at_a_time() {
 #[test]
 fn shows_its_version_above_the_menu_and_with_dash_dash_version() {
     let version = env!("CARGO_PKG_VERSION");
-    // a stand-in routing table of an offline computer, so the result does not depend on this one
-    let net = tmp("version-net");
-    std::fs::write(net.join("route"), "Iface\tDestination\tGateway \tFlags\tRefCnt\tUse\tMetric\tMask\t\tMTU\tWindow\tIRTT\n").unwrap();
-    std::fs::write(net.join("ipv6_route"), "").unwrap();
-    let o = run_env(None, &[("SEEDLOCK_TEST_NET_DIR", net.to_str().unwrap())], &[], "q\n");
+    let o = run(&[], "q\n");
     assert!(o.status.success(), "{}", err(&o));
     let shown = err(&o);
     let title = format!("=== SeedLock {version}: offline Bitcoin seed tool ===");

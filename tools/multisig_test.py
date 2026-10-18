@@ -35,6 +35,8 @@ SeedLock only shows keys, registers the wallet and signs; embit checks the resul
 
 Needs: pip install pexpect embit urtypes segno opencv-python-headless numpy, ffmpeg, and Foundation Devices'
        UR library (git clone https://github.com/Foundation-Devices/foundation-ur-py)
+Build: cargo build --release --locked -p seedlock-cli --features test-hooks   (a build for the tests, which reads their
+       stand-in networks; a released program has no way around the offline check)
 Run:   python3 tools/multisig_test.py target/release/seedlock --ur-lib foundation-ur-py [--bbqr-lib BBQr/python]
        (--bbqr-lib: Coinkite's reference code, git clone https://github.com/coinkite/BBQr, for section I;
         it needs pyqrcode)
@@ -64,6 +66,25 @@ from urtypes.crypto.keypath import Keypath, PathComponent
 from urtypes.crypto.multi_key import MultiKey
 from urtypes.crypto.output import SCRIPT_EXPRESSION_TAG_MAP, Output
 BIN = os.path.abspath(opts.bin)
+
+
+def check_test_build(program):
+    """These tests show SeedLock stand-in networks (offline, online). Only a build for testing reads them: a released
+    program has no way to be made to believe that the computer is offline. Stop at once, saying how to build it."""
+    probe = tempfile.mkdtemp()
+    with open(os.path.join(probe, "route"), "w") as f:
+        f.write("Iface\tDestination\tGateway \tFlags\tRefCnt\tUse\tMetric\tMask\t\tMTU\tWindow\tIRTT\n"
+                "probe9\t00000000\t0101A8C0\t0003\t0\t0\t600\t00000000\t0\t0\t0\n")
+    open(os.path.join(probe, "ipv6_route"), "w").close()
+    r = subprocess.run([program, "password"], env=dict(os.environ, SEEDLOCK_TEST_NET_DIR=probe), capture_output=True, text=True,
+                       stdin=subprocess.DEVNULL)
+    if "probe9" not in r.stderr:
+        sys.exit(f"{program} is not a build for these tests: it does not read the stand-in networks they show it. Build it with\n"
+                 "  cargo build --release --locked -p seedlock-cli --features test-hooks\n"
+                 "and give target/release/seedlock (the released programs have no such way around the offline check).")
+
+
+check_test_build(BIN)
 FFMPEG = shutil.which("ffmpeg")
 work = tempfile.mkdtemp()
 PW = "Correct-Horse-Battery-Staple"

@@ -101,6 +101,12 @@ for folder in "$HOME" ${CARGO_HOME:+"$CARGO_HOME"}; do
         exit 1
     fi
 done
+# A released program works only offline, with no way around it: the stand-in network that the test builds read
+# (crates/seedlock-cli, feature test-hooks) must not be in it.
+if grep -qaF SEEDLOCK_TEST_NET_DIR "$out"; then
+    echo "The new program can be made to believe that the computer is offline (it was built for the tests): something went wrong." >&2
+    exit 1
+fi
 if command -v sha256sum >/dev/null 2>&1; then
     sum=$(sha256sum "$out" | cut -d' ' -f1)
 else

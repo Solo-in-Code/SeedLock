@@ -12,6 +12,8 @@ import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.os.PersistableBundle
 import android.os.SystemClock
 import android.view.View
@@ -51,6 +53,9 @@ abstract class Screen(val app: MainActivity) {
  * screens that hold them close; every screen above the first one, and every dialog, closes as soon as
  * the app is left. Two exceptions, each for a few minutes, are for a password manager on this phone: after
  * a new password was copied, and while a backup's password is asked for (see [onStop]).
+ *
+ * SeedLock works only while the phone is offline: airplane mode on, and no network connected. It checks every
+ * second while it is in use; online, everything closes at once and the first screen only says why ([checkNetwork]).
  */
 class MainActivity : Activity() {
     private val stack = ArrayList<Screen>()
@@ -117,12 +122,24 @@ class MainActivity : Activity() {
     private var waitingAnswer: (() -> Unit)? = null
 
     /**
-     * True while the app is left (another app, the home screen, the screen switched off). Work that ends
-     * meanwhile, such as opening a backup, shows nothing then: a screen it opens closes at once, letting go
-     * of what it holds, and no dialog appears.
+     * Why this phone may be online, as the last check found ([onlineReasons]); empty while it is offline. Then
+     * SeedLock does nothing at all: the first screen says why.
+     */
+    var onlineNow: List<String> = emptyList()
+        private set
+
+    /** The phone's network is checked every second, on the screen's own thread, while SeedLock is in use. */
+    private val clock = Handler(Looper.getMainLooper())
+    private var watching = false
+    private val watch = Runnable { tick() }
+
+    /**
+     * True while the app is left (another app, the home screen, the screen switched off), and while the phone is
+     * online. Work that ends meanwhile, such as opening a backup, shows nothing then: a screen it opens closes at
+     * once, letting go of what it holds, and no dialog appears.
      */
     val left: Boolean
-        get() = !onScreen && !inPicker && !askingPermission
+        get() = onlineNow.isNotEmpty() || (!onScreen && !inPicker && !askingPermission)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -131,6 +148,8 @@ class MainActivity : Activity() {
         noAutofill(window.decorView)
         backups = Backups(File(filesDir, "backups"))
         multisig = MultisigWallets(File(filesDir, "multisig"))
+        // known before the first screen is built, so that an online phone never shows the backups even for a moment
+        onlineNow = onlineReasons(this)
         stack.add(HomeScreen(this))
         render()
     }
@@ -238,6 +257,9 @@ class MainActivity : Activity() {
     override fun onStart() {
         super.onStart()
         onScreen = true
+        // first of all: online, everything closes, and nothing that waited goes on
+        checkNetwork()
+        startWatching()
         waitingAnswer?.let {
             waitingAnswer = null
             it()
@@ -295,6 +317,8 @@ class MainActivity : Activity() {
     override fun onWindowFocusChanged(hasFocus: Boolean) {
         super.onWindowFocusChanged(hasFocus)
         if (!hasFocus) return
+        // back from the quick settings, for example: what changed there shows at once
+        checkNetwork()
         if (leftWithCopy) {
             leftWithCopy = false
             emptyClipboard()
@@ -353,7 +377,68 @@ class MainActivity : Activity() {
 
     private fun clipboard(): ClipboardManager = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
 
+    /** "Check again" on the first screen. */
+    fun checkNow() {
+        checkNetwork()
+    }
+
+    /**
+     * Looks at the phone's network now. Online, everything closes at once ([closeEverything]); a change shows on
+     * the first screen (why SeedLock does not work, or the backups again).
+     */
+    private fun checkNetwork() {
+        val reasons = onlineReasons(this)
+        val changed = reasons != onlineNow
+        onlineNow = reasons
+        if (reasons.isNotEmpty()) closeEverything(changed) else if (changed) render()
+    }
+
+    /**
+     * The phone is online: every dialog and every screen but the first closes, and with them any open seed;
+     * what SeedLock waited for (a file, the camera question, a password manager) is let go of; a password that
+     * SeedLock copied is taken off the clipboard. The first screen then says why SeedLock does not work.
+     */
+    private fun closeEverything(changed: Boolean) {
+        for (dialog in ArrayList(dialogs)) dialog.dismiss()
+        pendingFile = null
+        waitingAnswer = null
+        inPicker = false
+        askingPermission = false
+        keepOpenUntil = 0L
+        keptOpen = false
+        leftAtPrompt = 0L
+        if (copiedLabel != null) {
+            clearClipboard()
+            copiedLabel = null
+            leftWithCopy = false
+        }
+        if (stack.size > 1) home() else if (changed) render()
+    }
+
+    /** Checks every second from now on, as long as SeedLock is in use (see [inUse]). */
+    private fun startWatching() {
+        if (watching) return
+        watching = true
+        clock.postDelayed(watch, WATCH_MS)
+    }
+
+    private fun tick() {
+        checkNetwork()
+        if (inUse()) clock.postDelayed(watch, WATCH_MS) else watching = false
+    }
+
+    /**
+     * SeedLock is in use: on the screen, or left for a moment while what is open stays (a file picker, the camera
+     * question, a password manager on this phone).
+     */
+    private fun inUse(): Boolean {
+        val now = SystemClock.elapsedRealtime()
+        return onScreen || inPicker || askingPermission || (keptOpen && now <= keepOpenUntil) ||
+            (leftAtPrompt != 0L && now - leftAtPrompt <= KEEP_OPEN_MS)
+    }
+
     override fun onDestroy() {
+        clock.removeCallbacks(watch)
         for (dialog in ArrayList(dialogs)) dialog.dismiss()
         stack.lastOrNull()?.hidden()
         while (stack.isNotEmpty()) {
@@ -444,5 +529,8 @@ class MainActivity : Activity() {
          * SeedLock may be left without closing what is open.
          */
         const val KEEP_OPEN_MS = 5 * 60_000L
+
+        /** How often the phone's network is checked while SeedLock is in use. */
+        const val WATCH_MS = 1_000L
     }
 }

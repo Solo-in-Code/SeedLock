@@ -83,7 +83,7 @@ Do this on the online computer, before you copy the program to the offline one:
    or shows another fingerprint, do not use the download.
 5. Then compare the program's fingerprint with `SHA256SUMS.txt`, as the README says (Part 1, Way A, step 2).
 
-The phone app, `seedlock-0.2.1-android.apk`, is in the same list and is checked the same way
+The phone app, `seedlock-0.3.0-android.apk`, is in the same list and is checked the same way
 ([android/README.md](../android/README.md), Installing the ready-made app).
 
 The same fingerprint is in the README. If you know SeedLock's maintainer from somewhere else, such as a website or a
@@ -130,24 +130,32 @@ Type a number and press Enter. After each task SeedLock comes back to the menu; 
 When SeedLock asks a question, the answer in square brackets is what you get by pressing Enter alone: `[24]`, `[1]`.
 In a yes-or-no question, `[y/N]` means that Enter answers no, and `[Y/n]` that Enter answers yes.
 
-The menu's title shows SeedLock's version: `=== SeedLock 0.2.1: offline Bitcoin seed tool ===`.
+The menu's title shows SeedLock's version: `=== SeedLock 0.3.0: offline Bitcoin seed tool ===`.
 `./seedlock --version` (Windows: `.\seedlock.exe --version`) shows it too.
 
-### Is this computer online?
+### SeedLock works only offline
 
-Before the menu, SeedLock checks whether the computer is connected to a network. It does this without using the
-network: it only looks at the computer's own routing table (the list of ways out to other networks, which has a way
-out as soon as Wi-Fi or a cable connects the computer). On Linux it reads `/proc/net`; on macOS and Windows it asks
-the system's `route` program.
+SeedLock works only on a computer that is not connected to any network. Before anything else, it checks this
+without using the network: it only looks at the computer's own routing table (the list of ways out to other networks,
+which has a way out as soon as Wi-Fi or a cable connects the computer). On Linux it reads `/proc/net`; on macOS and
+Windows it asks the system's `route` program.
 
-* **Offline:** one line says `This computer is offline: no network connection was found.`
-* **Online:** a box says **WARNING: THIS COMPUTER IS ONLINE** and names the connection (`wlan0`, `en0`, on Windows the
-  network adapter or its address). Disconnect the computer before you create, open or type a seed: turn off Wi-Fi
-  and unplug the network cable. While it stays online, a one-line reminder appears each time the menu comes back.
-* **Cannot tell:** SeedLock says so, and asks you to make sure Wi-Fi is off and no network cable is plugged in.
+* **Offline:** one line says `This computer is offline: no network connection was found.`, and the menu opens.
+* **Online:** a box says **SEEDLOCK WORKS ONLY OFFLINE** and names the connection (`wlan0`, `en0`, on Windows the
+  network adapter or its address), and nothing else is offered. Disconnect the computer: turn off Wi-Fi and unplug
+  the network cable. Then press Enter: SeedLock checks again, and the menu opens. `q` quits.
+* **Cannot tell** (on another system, or in a sandbox or a container that hides the routing table): SeedLock does not
+  work either, and says why.
+* **Online while SeedLock is open:** SeedLock checks again every second. As soon as a connection appears, it clears
+  the screen and the terminal's scrollback, says why, and stops, so that no seed stays open on a computer that is
+  connected. Disconnect the computer, and start SeedLock again.
 
-SeedLock itself never uses the network, whatever this check says. The warning is there because, on an online
-computer, other programs could see your seed words while they are on the screen.
+The commands (see [The command line](#the-command-line)) do the same: online, they stop before they do anything.
+Only `--help` and `--version` work online.
+
+SeedLock itself never uses the network. It refuses to work online because on a connected computer, other programs
+could see your seed words or your password while they are on the screen or being typed. There is no way around it,
+on purpose: in an emergency, disconnect the computer.
 
 ### In a virtual machine
 
@@ -155,8 +163,9 @@ A virtual machine's network adapter always looks connected, even while the real 
 connected to the virtual machine program, and it is online again as soon as the real computer is. Nothing inside the
 virtual machine can see the real computer's connection. SeedLock recognises the usual virtual machine programs
 (QEMU/KVM, VirtualBox, VMware, Hyper-V, Parallels and Xen) from the description of the computer they show, and then
-says **WARNING: THIS VIRTUAL MACHINE HAS A NETWORK CONNECTION**. Turn off the virtual machine's network adapter (in
-the virtual machine program's settings, or in the system inside it): then SeedLock shows it as offline.
+says that it is a virtual machine whose network adapter is on, and does not work. Turn off the virtual machine's
+network adapter (in the virtual machine program's settings, or in the system inside it): then SeedLock sees it as
+offline.
 
 ## Your backups and the other files
 
@@ -706,8 +715,9 @@ the commands, and `./seedlock sign --help` (or any other command) explains one.
   text (`ur:crypto-psbt/...`, one per line).
 * Secrets (words, passwords, the passphrase, dice rolls) are only read from hidden prompts, or from the input when it
   comes from a script, never from the command itself, so they do not end up in the terminal's history.
-* For scripts: `verify` ends with exit code 2 when a comparison fails, and SeedLock ends with exit code 1 when
-  something goes wrong.
+* For scripts: `verify` ends with exit code 2 when a comparison fails, SeedLock ends with exit code 3 when the
+  computer is not offline (see [SeedLock works only offline](#seedlock-works-only-offline)), and with exit code 1 when
+  something else goes wrong.
 
 Examples:
 
