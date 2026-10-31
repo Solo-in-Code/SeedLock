@@ -1,4 +1,7 @@
 # Text files are stored with LF line endings. Shell scripts keep LF even when checked out on Windows: with CRLF
-# line endings they no longer run.
+# line endings they no longer run. So do the files of the fixed build environment, which runs on Linux, also when it
+# is started on Windows (tools/reproducible, and .dockerignore, whose lines would no longer match with a CR at the end).
 * text=auto
 *.sh text eol=lf
+tools/reproducible/* text eol=lf
+.dockerignore text eol=lf
