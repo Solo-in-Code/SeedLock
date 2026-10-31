@@ -13,21 +13,24 @@ app](#the-phone-app-preview)). The releases have it ready-made, signed with Seed
 1. [Building](#building)
 2. [The phone app (preview)](#the-phone-app-preview)
 3. [Making a release](#making-a-release)
-4. [Supply chain and the offline audit](#supply-chain-and-the-offline-audit)
-5. [How SeedLock was verified](#how-seedlock-was-verified)
-6. [Technical notes](#technical-notes)
-7. [Code layout](#code-layout)
-8. [Limitations and roadmap](#limitations-and-roadmap)
+4. [Reproducible builds](#reproducible-builds)
+5. [Supply chain and the offline audit](#supply-chain-and-the-offline-audit)
+6. [How SeedLock was verified](#how-seedlock-was-verified)
+7. [Technical notes](#technical-notes)
+8. [Code layout](#code-layout)
+9. [Limitations and roadmap](#limitations-and-roadmap)
 
 ## Building
 
 ### What you need
 
-* **Rust 1.85 or newer** (`rust-version` in `Cargo.toml`). SeedLock is tested with Rust 1.91, and also built with
-  1.85. The README's [Part 1, Way B](../README.md#way-b-build-it-yourself) installs it with rustup, the official
-  installer, which works on every system. Packaged versions work too when they are new enough: on Debian 13,
-  `sudo apt install cargo` gives exactly 1.85; Debian 12 and other older systems install an older one, so use rustup
-  there (`install.sh` checks the version and says so); Arch's `rust` package and Homebrew's `rust` are current.
+* **Rust 1.85 or newer** (`rust-version` in `Cargo.toml`). SeedLock is tested with Rust 1.91 and 1.97, and also built
+  with 1.85; the ready-made programs of the releases are built with 1.97.0 (see [Reproducible
+  builds](#reproducible-builds)). The README's [Part 1, Way B](../README.md#way-b-build-it-yourself) installs it with
+  rustup, the official installer, which works on every system. Packaged versions work too when they are new enough: on
+  Debian 13, `sudo apt install cargo` gives exactly 1.85; Debian 12 and other older systems install an older one, so
+  use rustup there (`install.sh` checks the version and says so); Arch's `rust` package and Homebrew's `rust` are
+  current.
 * **A C compiler.** `secp256k1-sys`, the library under rust-bitcoin's signatures, compiles the C code of
   libsecp256k1 (through the `cc` crate). On Linux that is `gcc` (`build-essential`, `base-devel`), on macOS Apple's
   command line tools, on Windows the Visual Studio C++ build tools, which rustup-init offers to install.
@@ -89,21 +92,24 @@ with the same or a newer system (it needs the C library, glibc, at least as new 
 otherwise it stops with `GLIBC_2.xx not found`). So build on the oldest system you want it to run on, or on that
 computer itself.
 
-The ready-made programs of a release avoid these limits where they can (see [Making a release](#making-a-release)):
-the Linux one is a static program built with musl, so it needs no glibc and runs on any x86-64 Linux; the macOS one
-holds both kinds of Mac processor; and every Windows build has the C runtime inside the program, by the setting in
-`.cargo/config.toml` (`-C target-feature=+crt-static`), so it also starts on a computer without Microsoft's "Visual
-C++ Redistributable", where it would otherwise stop with `VCRUNTIME140.dll was not found`. A Windows build without that
-setting (the file missing, or a `RUSTFLAGS` variable that replaces it) stops with a message saying so (`main.rs`).
+The ready-made programs of a release avoid these limits (see [Reproducible builds](#reproducible-builds)): the Linux
+one is a static program with musl inside, so it needs no glibc and runs on any x86-64 Linux; the macOS one holds both
+kinds of Mac processor; and the Windows one is built with the free MinGW tools, so it needs only what every Windows
+has. A Windows build made on Windows with Microsoft's tools (README, Part 1, Way B) has the C runtime inside the
+program instead, by the setting in `.cargo/config.toml` (`-C target-feature=+crt-static`), so it also starts on a
+computer without Microsoft's "Visual C++ Redistributable", where it would otherwise stop with `VCRUNTIME140.dll was
+not found`. Such a build without that setting (the file missing, or a `RUSTFLAGS` variable that replaces it) stops
+with a message saying so (`main.rs`).
 
-Two builds of the same source are usually not identical byte for byte when they are made on different computers
-(Rust records file paths and its own version in the program). That is why the README compares the copy on the
-offline computer with the file you built yourself, by its SHA-256 checksum.
+Two builds of the same source made with `cargo build` on different computers are usually not identical byte for byte
+(Rust records file paths and its own version in the program). That is why the README compares the copy on the offline
+computer with the file you built yourself, by its SHA-256 checksum. The ready-made programs of a release are
+different: built in a fixed environment, they come out identical wherever they are built.
 
 ### The version number
 
 The program takes its version from one place, `version` under `[workspace.package]` in the top `Cargo.toml`. The
-menu's title shows it (`=== SeedLock 0.3.0: offline Bitcoin seed tool ===`), and `seedlock --version` prints it.
+menu's title shows it (`=== SeedLock 0.3.1: offline Bitcoin seed tool ===`), and `seedlock --version` prints it.
 `Cargo.lock` records it too: after changing it, run `cargo build --offline` once without `--locked`, so that
 `Cargo.lock` follows. The README and the guides show it as well; see [Making a release](#making-a-release).
 
@@ -220,27 +226,26 @@ A release is a version of SeedLock that people download exactly as it was tested
    same way and click **Commit changes**. Then check that every file is in its folder: a file uploaded on the
    repository's main page lands at the top. To remove a file from GitHub, open it, click **...** at the top right,
    then **Delete file** and **Commit changes**.
-4. **Build the programs** from exactly those files: on each computer, download them from GitHub (**Code > Download
-   ZIP**), then, in that folder:
+4. **Build the programs** from exactly those files, all three on one computer: Linux with Docker or Podman (or a Mac
+   or Windows with Docker Desktop, slower on a Mac with an Apple chip). Download the files from GitHub (**Code >
+   Download ZIP**), unpack them, and in that folder:
 
-   | System | Command | The program |
-   |---|---|---|
-   | Linux (x86-64) | `sh tools/build-release.sh` | `dist/seedlock-X.Y.Z-linux-x86_64` |
-   | macOS | `sh tools/build-release.sh` | `dist/seedlock-X.Y.Z-macos` |
-   | Windows | `powershell -ExecutionPolicy Bypass -File tools\build-release.ps1` | `dist\seedlock-X.Y.Z-windows-x86_64.exe` |
+   ```sh
+   sh tools/build-release.sh
+   ```
 
-   `X.Y.Z` is the version. On Windows, type the line in PowerShell or in Command Prompt, both work;
-   `-ExecutionPolicy Bypass` lets Windows run this one script, without changing any setting. The scripts need Rust
-   installed with rustup, and on Linux musl; they say how to install what is missing. Each one prints the program's
-   SHA-256: write them down. (The Windows script makes an x86-64 program even on a Windows computer with an ARM
-   processor, where Rust would otherwise build for ARM.)
+   (On Windows: `powershell -ExecutionPolicy Bypass -File tools\build-release.ps1`.) It builds them in the fixed build
+   environment ([Reproducible builds](#reproducible-builds)) and puts them into `dist`: `seedlock-X.Y.Z-linux-x86_64`,
+   `seedlock-X.Y.Z-windows-x86_64.exe` and `seedlock-X.Y.Z-macos`, where `X.Y.Z` is the version. Inside the
+   environment, `seedlock-tools check-programs` checks each one before it comes out: the kind of program, the system
+   libraries it needs, the protections (a random address each time; on Windows, data never run as code), the Mac
+   program's oldest macOS and its signature, nothing of the test builds, and no folder of the environment or of a user
+   in it. If one is wrong, the build stops and says why. The script then prints each program's SHA-256: write them
+   down. Your user name cannot get into the programs: they are built in the environment's own folders, never in yours.
 
-   **Your user name stays out of the programs.** Rust writes the full path of each library's source files into the
-   program, for its error messages, and that path holds the user name of the computer that builds it:
-   `/home/NAME/.cargo/...`, `/Users/NAME/.cargo/...` or `C:\Users\NAME\.cargo\...`. The scripts make Rust write `~`
-   in place of the home folder (`--remap-path-prefix`; on Windows it is added to the setting in `.cargo/config.toml`,
-   which stays in force), then check that the program no longer contains the home folder's path, and stop with a
-   message if it does. So build release programs with the scripts, never with `cargo build` alone.
+   **Then build them once more,** best on another computer, or on the same one with `sh tools/build-release.sh
+   --no-cache` (Docker then builds everything again, without what it kept from the first time): all three must come
+   out with exactly the same SHA-256, as they will for anyone who checks the release.
 
    **And the phone app,** on the computer with Android Studio and SeedLock's Android key, in that downloaded folder
    too (android/README.md, Building it yourself, says what it needs):
@@ -259,12 +264,14 @@ A release is a version of SeedLock that people download exactly as it was tested
       key it is signed with), puts it into `dist` as `seedlock-X.Y.Z-android.apk` and prints its SHA-256: write that
       down too. If something is wrong, it says what, and nothing goes into `dist`.
 5. **Try each program** on its system, offline: it starts, shows the version in the menu's title, and opens a backup.
-   Best on a computer where Rust was never installed, as the users' computers are. (The three test scripts cannot
-   drive a ready-made program: it has no way to be shown a stand-in network, see [The online check](#the-online-check).)
-   Install the phone app on a phone as android/README.md (Installing the ready-made app) says, and open a backup with
-   it.
-6. **The checksum list.** Bring the three programs and the phone app to one Linux or Mac computer (a USB stick is
-   fine), into one folder, and check that each one still has the SHA-256 written down in step 4. Then, in that folder:
+   The Windows and Mac programs are built on Linux, so try them on a real Windows computer and a real Mac (one with an
+   Apple chip, and an Intel one if you can) before every release. Best on a computer where Rust was never installed,
+   as the users' computers are. (The three test scripts cannot drive a ready-made program: it has no way to be shown a
+   stand-in network, see [The online check](#the-online-check).) Install the phone app on a phone as
+   android/README.md (Installing the ready-made app) says, and open a backup with it.
+6. **The checksum list.** Bring the phone app into the folder `dist` with the three programs (a USB stick is fine, if
+   it was made on another computer), on a Linux or Mac computer, and check that each file still has the SHA-256
+   written down in step 4. Then, in that folder:
 
    ```sh
    sha256sum seedlock-X.Y.Z-* > SHA256SUMS.txt       # on a Mac: shasum -a 256 seedlock-X.Y.Z-* > SHA256SUMS.txt
@@ -396,12 +403,97 @@ key:
 `seedlock-tools check-apk` shows it, and so does `keytool -list -v -keystore seedlock-android.jks` (the line
 `SHA256:`; keytool comes with Android Studio, in its folder `jbr/bin`).
 
+## Reproducible builds
+
+From version 0.3.1 on, the ready-made programs of a release (for Linux, Windows and the Mac) are built in a fixed
+environment, in which they come out the same, byte for byte, wherever and whenever they are built. So anyone can check
+that a release's programs were made from its published source code, and from nothing else: build them again, and
+compare their SHA-256 checksums with the release's `SHA256SUMS.txt`. That does not depend on trusting SeedLock's
+maintainer, GitHub or the release key. (The phone app is not built this way yet: see [Limitations and
+roadmap](#limitations-and-roadmap).)
+
+### Checking a release yourself
+
+You need a computer with Docker or Podman (Linux, or a Mac or Windows with Docker Desktop), about 4 GB of free disk
+space and an internet connection; the first time, about 1 GB is downloaded. (With both installed, the script uses
+Docker when it can build: when it is running and has its part "buildx"; otherwise Podman.) On the release's page:
+
+1. Download **Source code (zip)** and unpack it. Download `SHA256SUMS.txt` into the unpacked folder (and, if you
+   like, check its signature: [the guide](GUIDE.md#checking-a-downloaded-program)).
+2. In that folder:
+
+   | System | Command |
+   |---|---|
+   | Linux, Mac | `sh tools/build-release.sh SHA256SUMS.txt` |
+   | Windows | `powershell -ExecutionPolicy Bypass -File tools\build-release.ps1 SHA256SUMS.txt` |
+
+   After some minutes (much longer on a Mac with an Apple chip, which runs the environment as an Intel computer), it
+   says for each program whether it is the same as in `SHA256SUMS.txt`, and at the end: `All 3 programs are the same,
+   byte for byte, as the ones in SHA256SUMS.txt`.
+
+If a program differs, something is wrong: the source code is not that release's, or something in it was changed (use
+the zip as it is), or the release's program is not what its source code makes. Please report it.
+
+### What is fixed
+
+Everything that goes into the programs is in `tools/reproducible/`:
+
+* `Dockerfile`, the environment: a Debian 13 system, fixed by its digest; Rust 1.97.0, installed by rustup-init 1.29.1
+  (checked by its SHA-256, the same as in Rust's own Docker images), which checks the compiler and its libraries for
+  the three systems against the checksums Rust publishes; zig 0.15.2, the C compiler and linker for the three systems
+  (the official build, which the Zig Software Foundation also publishes on PyPI), and cargo-zigbuild 0.23.4, which
+  lets Cargo build with zig, both checked by their SHA-256. SeedLock's libraries are fixed by `Cargo.lock`, each with
+  its checksum.
+* `build-programs.sh`, what runs inside: the source code is copied to the same folder for everyone, `/seedlock`; the
+  file paths that Rust writes into the programs (for their error messages) read `~/.cargo/...` for the libraries and
+  are relative for SeedLock's own code; then the three builds, and `seedlock-tools check-programs`.
+* `zig.sh`, which stands in for zig: it gives the Mac program the oldest macOS versions (below).
+
+`.dockerignore` keeps everything else out of the environment: what builds make, and anything private that may be in
+the folder (backups, transactions, keys).
+
+### How the programs are made
+
+All three are built on Linux, in the environment, with zig as the C compiler (for libsecp256k1, the C library inside
+rust-bitcoin) and as the linker:
+
+* **Linux:** `x86_64-unknown-linux-musl`, a static program with musl inside. `-pie` makes it position-independent
+  (loaded at a random address each time, as before): Rust asks for that with `-static-pie`, which zig does not take.
+* **Windows:** `x86_64-pc-windows-gnu`, made with the MinGW tools that zig brings, instead of Microsoft's Visual C++ on
+  a Windows computer as before 0.3.1. It needs only libraries that every Windows has, and has Windows's protections
+  on: a random address, and data never run as code (zig turns both on by itself; `--nxcompat` asks for the second
+  anyway). `-Brepro` makes the linker write no date into it: it writes a checksum of the program there instead.
+* **Mac:** one file for both kinds of processor (`universal2-apple-darwin`), without a Mac and without Apple's
+  linker. Two details. cargo-zigbuild asks zig for macOS without a version, which zig takes as macOS 13, so `zig.sh`
+  names the versions Rust builds for: 10.12 on Intel chips, 11 on Apple chips. And zig removes the symbols itself
+  (`-Wl,-x`, with Rust's own stripping turned off for this build): zig computes the file's identifier (its UUID) from
+  the finished file, and when Rust stripped it afterwards, the identifier came from a file with temporary file names
+  in it, and differed every time. The program for Apple chips carries zig's ad-hoc signature, which `check-programs`
+  checks page by page. (While it is built, Rust warns twice that `xcrun` found no MacOSX.sdk: that is expected, as
+  zig brings what the linker needs of it.)
+
+### Updating the fixed versions
+
+A new Debian, Rust, zig or cargo-zigbuild changes the programs, so change them on purpose, in
+`tools/reproducible/Dockerfile`:
+
+* **Debian:** a dated tag of the `debian` image, with its digest (the line `Digest:` that `docker pull` prints; the
+  [repo-info](https://github.com/docker-library/repo-info/tree/master/repos/debian/remote) pages list it too).
+* **Rust:** the version after `--default-toolchain`; rustup-init only when Rust's own Docker images change it, with its
+  checksum from [docker-rust](https://github.com/rust-lang/docker-rust).
+* **zig and cargo-zigbuild:** the file's address and SHA-256 from PyPI (each version's page, **Download files**).
+
+Then build twice, on two computers, check that both give the same programs, try them on each system, and write the
+new versions here and in [What you need](#what-you-need).
+
 ## Supply chain and the offline audit
 
 `Cargo.lock` is included and pins every library: 82 crates in the program's dependency tree, none of which can use
 the network. Build with `--locked`, review `Cargo.lock`, and, if you like, vendor the sources (above) and read what
 you build. There is no telemetry and no network code: the online check, which keeps SeedLock from working on a
-computer that is not offline, only reads the computer's own routing table.
+computer that is not offline, only reads the computer's own routing table. The ready-made programs are built with
+tools that are each fixed by a checksum too (Debian, Rust, zig, cargo-zigbuild: [What is fixed](#what-is-fixed)), and
+anyone can rebuild them and compare ([Reproducible builds](#reproducible-builds)).
 
 `sh tools/audit-offline.sh` checks, on every run:
 
@@ -418,9 +510,10 @@ computer that is not offline, only reads the computer's own routing table.
    (Android's included, whatever computer runs the audit), and its licenses are checked like the program's; its
    manifest asks Android only for the camera and the network state (to work only while the phone is offline) and takes
    INTERNET out; JNA is its only other library; and its Kotlin code uses no network API;
-7. the build helper `crates/seedlock-tools` (the app's license notices, the check of a release APK), which runs on the
-   computer that builds the app and is never part of SeedLock: no networking crate in its tree either, and the only
-   program it starts is cargo (`cargo tree` and `cargo metadata`, for the notices).
+7. the build helper `crates/seedlock-tools` (the app's license notices, the check of a release APK, the check of the
+   ready-made programs), which runs where the app or the programs are built and is never part of SeedLock: no
+   networking crate in its tree either, and the only programs it starts are cargo (`cargo tree` and `cargo metadata`,
+   for the notices) and the Linux program it checks (`--version`, in the build environment).
 
 It prints every `unsafe` line and every place a program is started, so they can be read in one go. Run it after every
 dependency update. It needs Cargo; if Cargo cannot run, it says FAIL, never OK.
@@ -474,7 +567,7 @@ this version's, or whose code is from any other library than those.
 
 ### Automated tests
 
-**167 automated tests** (`cargo test --workspace --locked`):
+**173 automated tests** (`cargo test --workspace --locked`):
 
 * **71 for the core library:** backup tamper detection on every bit; a backup's QR code with its name line, still
   read as the backup exactly the way earlier versions read it; BIP39/32/44/49/84/86 test vectors; BIP380 descriptor
@@ -504,7 +597,7 @@ this version's, or whose code is from any other library than those.
   reading Linux routing tables, macOS `route` output and Windows `route print` output in English and Spanish; a
   virtual machine recognised from its firmware description (and real computers not); Windows registry values; a
   scanned backup matched to its file; and which files of an earlier version go into the cosigner keys folder.
-* **31 end-to-end tests of the real program:** among them that SeedLock works only offline (online, and where it
+* **32 end-to-end tests of the real program:** among them that SeedLock works only offline (online, and where it
   cannot tell, every command stops before it asks anything, with exit code 3, and so does the menu, while `--help` and
   `--version` still answer); `sign --scan` through a stand-in ffmpeg; signing without `--network` (a test-network
   transaction is recognised and shown with testnet addresses, a mainnet one is called real bitcoin, `--network` still
@@ -517,9 +610,10 @@ this version's, or whose code is from any other library than those.
   names the keystore after the backup, also written in the saved text file, with the descriptor to paste still shown;
   a backup scanned from a named QR code, through a stand-in ffmpeg, giving its name to the files made from it and to
   the keystore; the version in the menu's title, above the menu, and from `--version`; the same version everywhere the
-  README and the guides give it; and the same release key fingerprint everywhere they give it, which is also the
-  fingerprint of the key in `docs/release-key.asc`.
-* **8 for the build helper** (`seedlock-tools`): license expressions read ("(MIT OR Apache-2.0) AND ISC", the old
+  README and the guides give it; the same release key fingerprint everywhere they give it, which is also the
+  fingerprint of the key in `docs/release-key.asc`; and the same versions of Rust, zig and cargo-zigbuild in the
+  fixed build environment and on this page.
+* **13 for the build helper** (`seedlock-tools`): license expressions read ("(MIT OR Apache-2.0) AND ISC", the old
   "MIT/Apache-2.0"), and of their choices the license that asks the least taken (MIT before others that ask as
   little); license texts recognised by their wording (and a file that only names licenses not taken for one); an MIT
   text split into its copyright lines and the usual text, also libffi's, with its old quotes, while one with an extra
@@ -527,8 +621,16 @@ this version's, or whose code is from any other library than those.
   certificate read (APK Signature Scheme v3 and v2, manifests with UTF-16 and UTF-8 strings); every mistake found (a
   build that can be debugged, the test build, another version, the INTERNET permission, a missing library or one for
   another processor, code of another library, no notices or another version's, the home folder's path inside,
-  Android Studio's test key, no v2 or v3 signature, not an APK at all); the version codes build.gradle.kts gives; and
-  the fingerprint of SeedLock's Android certificate the same in the check and in the documents that give it.
+  Android Studio's test key, no v2 or v3 signature, not an APK at all); the version codes build.gradle.kts gives; the
+  fingerprint of SeedLock's Android certificate the same in the check and in the documents that give it; and the check
+  of the ready-made programs (`check-programs`), on programs made for the test: a static, position-independent Linux
+  program passes, one with a program interpreter, shared libraries, its symbol table or a fixed address is refused; a
+  Windows console program with Windows's protections that needs only Windows's own libraries passes, one that needs
+  MinGW's or Visual C++'s runtime, is not a console program, or lacks a random address, is refused; a Mac file with
+  both programs, position-independent, with their oldest macOS versions and an ad-hoc signature that fits passes,
+  while macOS 13, a library from elsewhere, no signature on the Apple-chip program, a byte changed after signing, a
+  fixed address or one program missing are each refused; the version, the test builds' stand-in network and folder
+  names inside; and the scripts naming the programs, and `zig.sh` the oldest macOS versions, as the check does.
 * **6 for the QR crate** (`seedlock-qr`, which both programs read QR codes with): soft and noisy camera pictures; dense
   codes photographed on a screen (its pixel pattern, glare, soft focus) that only the light-evening tries read; a code
   in view that cannot be read, and a dense one too damaged to read, both noticed as such; where a code is, also in a
@@ -687,6 +789,31 @@ checked on a computer:
   debugged, the test build's id, Android Studio's test key, only an old v1 signature, the INTERNET permission, and no
   notices with the home folder's path in a library are each refused, saying why.
 
+### The fixed build environment, checked here
+
+This project's test machine cannot download Docker images, nor Rust's libraries for Windows and the Mac, so the
+[fixed build environment](#reproducible-builds) was checked in parts:
+
+* `build-programs.sh` ran as the environment runs it, in `/seedlock`, with the same zig and cargo-zigbuild, and with
+  Rust 1.91 building its libraries for musl and the Mac from source (`-Zbuild-std`) in place of rustup's: the Linux
+  and Mac programs came out byte for byte the same each time they were built again, also in other folders;
+  `check-programs` passed them; and zig's and cargo-zigbuild's files stayed in `target`, which the script removes at
+  the end. The Windows program was built separately, with the same flags (Ubuntu's Rust needed a few stand-ins to
+  build its libraries for Windows): the same bytes from two folders, and `check-programs` passed it. The libraries it
+  needs are all part of Windows 10 and newer, the Universal C Runtime among them. (That build also showed a warning
+  that only Windows builds give, an unused import in `ui.rs`, now fixed.)
+* Found and fixed on the way: the Mac program's identifier differed at every build while Rust stripped the program
+  after zig; zig made the Mac program for macOS 13 and newer before `zig.sh`; and the Linux program was not
+  position-independent before `-pie`. The Apple-chip signature was also checked page by page by a separate script.
+* `check-programs` passed the 0.3.0 release's three programs, and refused a Mac program for macOS 13.
+* The Dockerfile's steps in a real container (a local Ubuntu image in place of Debian's, without the Rust step): zig
+  and cargo-zigbuild downloaded and checked by their checksums, `zig.sh` giving macOS 10.12 and 11.0, `.dockerignore`
+  leaving out the backups, transactions, keys and build folders put there for the test, and the programs exported
+  into `dist`, by Docker and by Podman. `build-release.sh` then compared them with a `SHA256SUMS.txt`: all the same;
+  with a changed line, DIFFERENT; with a missing one, not in the list; and without Docker or Podman, it says what to
+  install. With stand-ins for Docker and Podman, `build-release.sh` and `build-release.ps1` (in PowerShell 7) chose
+  Docker only when it was running and had buildx, Podman otherwise, and said what helps when a build stopped.
+
 ### Confirmed on real computers
 
 By SeedLock's users:
@@ -735,6 +862,9 @@ By SeedLock's users:
   0.2.1 (the backups and multisig wallets saved as files, the old app uninstalled, then added again), a testnet
   payment signed with it, the screen **About SeedLock and its licenses**, and a test build installed beside it as
   "SeedLock test".
+* **Version 0.3.0:** that SeedLock works only offline, on the users' Linux, macOS and Windows computers and on the
+  phone: the message while the computer is connected, Enter checking again, and the stop when a connection appears
+  while it is open.
 * Also confirmed: reading a backup from its QR code; the online warning on Linux; and multisig with Sparrow (2 of 3,
   native SegWit): the keys typed in or scanned by Sparrow's xpub button, the wallet's descriptor from a file, from an
   animated UR code and from static BBQr codes at two densities (in good light), and its transactions signed by one
@@ -757,8 +887,9 @@ You should know these:
    picker as a transaction's file, which works), nested and legacy multisig wallets, and other phones and Android
    versions than the Xiaomi Mi 8 with Android 10; see
    [The phone app, checked on a computer](#the-phone-app-checked-on-a-computer).
-7. That SeedLock works only offline (new in 0.3.0), on real computers and phones: the message, Enter checking again,
-   and the stop when a connection appears while it is open, on Linux, macOS and Windows, and on the phone.
+7. The reproducible build (new in 0.3.1): the fixed build environment on real computers, giving the same programs on
+   two of them; and the programs it makes, on real computers: the Windows program, now made with the MinGW tools
+   instead of Visual C++, and the Mac program, now linked by zig instead of Apple's linker.
 
 Menu 9 and `seedlock camera` let anyone check their own camera setup.
 
@@ -821,7 +952,7 @@ The tests stand in their own routing tables and firmware descriptions, in the fo
 system, with `SEEDLOCK_TEST_NET_DIR`. Only builds for testing read it: debug builds (`cargo test`) and builds with the
 feature `test-hooks` (`cargo build --release --locked -p seedlock-cli --features test-hooks`, which the test scripts
 need and check for). A released program cannot be made to believe that the computer is offline: that code is not in
-it, and `tools/build-release.sh` and `build-release.ps1` refuse a program that contains it.
+it, and `seedlock-tools check-programs` refuses a program that contains it before it leaves the build environment.
 
 ### Camera scanning
 
@@ -907,7 +1038,8 @@ crates/seedlock-cli       the `seedlock` program: prompts, menu, files, QR pictu
 crates/seedlock-qr        reading QR codes in camera pictures, and making QR codes (no I/O; used by both programs)
 crates/seedlock-ffi       the phone app's library: what the app calls, made callable from Kotlin by UniFFI
 crates/uniffi-bindgen     writes the Kotlin code that calls seedlock-ffi (run by android/build-rust.sh)
-crates/seedlock-tools     the build helper: the phone app's license notices, and the check of a release APK (never in SeedLock)
+crates/seedlock-tools     the build helper: the phone app's license notices, the checks of a release APK and of the
+                          ready-made programs (never in SeedLock)
 android/                  the Android app (preview): its README, build-rust.sh and .ps1, the app, jvm-check/
 docs/GUIDE.md             the user guide
 docs/DEVELOPMENT.md       this page
@@ -918,7 +1050,9 @@ docs/logo/                the logo (SVG and PNG files) and make_logo.py, which d
 install.sh                builds the program and installs it, so that `seedlock` starts it from any folder
 LICENSE                   the MIT license (for everything except the logo)
 tools/                    recover.py, crosscheck*.py, interactive_test.py, qr_flow_test.py, multisig_test.py, audit-offline.sh,
-                          build-release.sh and build-release.ps1 (the ready-made programs of a release)
+                          build-release.sh and build-release.ps1 (build the ready-made programs of a release)
+tools/reproducible/       the fixed build environment of those programs: Dockerfile, build-programs.sh, zig.sh
+.dockerignore             what the build environment leaves out of SeedLock's folder
 dist/                     made by build-release.sh and .ps1: the ready-made programs (never committed)
 seedlocker backups/       made where you run seedlock: your backups and their QR pictures (never committed)
 seedlocker transactions/  made where you run seedlock: signed files of scanned transactions, and QR pages (never committed)
@@ -938,7 +1072,7 @@ command-line program write the same backups and the same QR codes (the backup's 
 Sparrow as a QR code that names the keystore), so either one opens what the other made (use `--kdf light` for very old
 phones).
 
-**Reproducible builds.** Today a program that a user builds is not byte for byte the same file as a release's
-ready-made program (file paths and the compiler versions are recorded in it). Building the release programs in a fixed
-environment (the same Rust and C compiler versions and the same paths, for example in a container) would let anyone
-rebuild a release and compare the SHA-256 with `SHA256SUMS.txt`, without having to trust the release key.
+**Reproducible builds, the phone app too.** From 0.3.1 on, the computer programs are built reproducibly (see
+[Reproducible builds](#reproducible-builds)). Next, the phone app: its APK built in a fixed environment as well
+(Android's tools, each fixed by its version and checksum), so that anyone can compare it with the released one, apart
+from its signature, which only the holder of SeedLock's Android key can add.

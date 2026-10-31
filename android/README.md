@@ -31,16 +31,16 @@ What makes it safe to use on a phone:
 On the online computer:
 
 1. **Download it.** On SeedLock's GitHub page, click **Releases** on the right. Under the newest release,
-   in its **Assets**, download `seedlock-0.3.0-android.apk` (the version may be newer) and
+   in its **Assets**, download `seedlock-0.3.1-android.apk` (the version may be newer) and
    `SHA256SUMS.txt`.
 2. **Check it,** as for the computer programs (the main README, Part 1, Way A, step 2). Open a terminal
    in the folder it was downloaded to and type the line for your computer:
 
    | Computer | Command |
    |---|---|
-   | Windows | `(Get-FileHash seedlock-0.3.0-android.apk).Hash` |
-   | Mac | `shasum -a 256 seedlock-0.3.0-android.apk` |
-   | Linux | `sha256sum seedlock-0.3.0-android.apk` |
+   | Windows | `(Get-FileHash seedlock-0.3.1-android.apk).Hash` |
+   | Mac | `shasum -a 256 seedlock-0.3.1-android.apk` |
+   | Linux | `sha256sum seedlock-0.3.1-android.apk` |
 
    The long number it shows must be exactly the one next to the file's name in `SHA256SUMS.txt`. If it is
    not, delete the file. To check that list's signature too, see the guide:

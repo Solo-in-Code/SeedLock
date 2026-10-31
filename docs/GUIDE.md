@@ -83,11 +83,25 @@ Do this on the online computer, before you copy the program to the offline one:
    or shows another fingerprint, do not use the download.
 5. Then compare the program's fingerprint with `SHA256SUMS.txt`, as the README says (Part 1, Way A, step 2).
 
-The phone app, `seedlock-0.3.0-android.apk`, is in the same list and is checked the same way
+The phone app, `seedlock-0.3.1-android.apk`, is in the same list and is checked the same way
 ([android/README.md](../android/README.md), Installing the ready-made app).
 
 The same fingerprint is in the README. If you know SeedLock's maintainer from somewhere else, such as a website or a
 profile, compare it there too: someone who could change SeedLock's GitHub page could change this text as well.
+
+### Building the programs again yourself
+
+From version 0.3.1 on, there is a check that does not depend on trusting SeedLock's maintainer or the release key: the
+ready-made programs are built in a fixed environment in which they come out the same, byte for byte, wherever they are
+built. So you (or anyone you trust) can build them again from the release's source code and compare: if your programs
+have the same fingerprints as the ones in `SHA256SUMS.txt`, the release's programs were made from exactly that source
+code.
+
+It needs a computer with Docker or Podman (on Windows and on a Mac: Docker Desktop) and an internet connection. Unpack
+the release's **Source code (zip)**, put `SHA256SUMS.txt` into that folder, open a terminal there and type
+`sh tools/build-release.sh SHA256SUMS.txt` (Windows: `powershell -ExecutionPolicy Bypass -File tools\build-release.ps1
+SHA256SUMS.txt`). After some minutes it says, for each program, whether it is the same as in the list. More in
+[DEVELOPMENT.md, Reproducible builds](DEVELOPMENT.md#reproducible-builds).
 
 ## Starting SeedLock
 
@@ -130,7 +144,7 @@ Type a number and press Enter. After each task SeedLock comes back to the menu; 
 When SeedLock asks a question, the answer in square brackets is what you get by pressing Enter alone: `[24]`, `[1]`.
 In a yes-or-no question, `[y/N]` means that Enter answers no, and `[Y/n]` that Enter answers yes.
 
-The menu's title shows SeedLock's version: `=== SeedLock 0.3.0: offline Bitcoin seed tool ===`.
+The menu's title shows SeedLock's version: `=== SeedLock 0.3.1: offline Bitcoin seed tool ===`.
 `./seedlock --version` (Windows: `.\seedlock.exe --version`) shows it too.
 
 ### SeedLock works only offline

@@ -41,7 +41,7 @@ try {
     if ($LASTEXITCODE -ne 0) { Fail 'rustup could not add the Android targets (is this computer online?).' }
 
     # Rust writes the full path of each library's source files into the program, and that path holds this
-    # computer's user name: --remap-path-prefix writes ~ in its place (as tools\build-release.ps1 does).
+    # computer's user name: --remap-path-prefix writes ~ in its place.
     foreach ($variable in 'RUSTFLAGS', 'CARGO_BUILD_RUSTFLAGS') {
         [Environment]::SetEnvironmentVariable($variable, $null)
     }

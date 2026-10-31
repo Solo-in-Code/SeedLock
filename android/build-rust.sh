@@ -24,7 +24,7 @@ fi
 rustup target add aarch64-linux-android armv7-linux-androideabi x86_64-linux-android
 
 # Rust writes the full path of each library's source files into the program, and that path holds this
-# computer's user name: --remap-path-prefix writes ~ in its place (as tools/build-release.sh does).
+# computer's user name: --remap-path-prefix writes ~ in its place.
 unset RUSTFLAGS
 flags="--remap-path-prefix=$HOME=~"
 if [ -n "${CARGO_HOME:-}" ]; then
