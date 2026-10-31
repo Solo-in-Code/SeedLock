@@ -7,8 +7,9 @@
 #      network, /sbin/route on macOS and route.exe on Windows (they read the routing table and send nothing);
 #      to see whether it is a virtual machine, sysctl on macOS and reg.exe on Windows (they read its firmware
 #      description); and the system's "open" command (only with --qr-browser); nothing else, and never from
-#      the core library. (crates/seedlock-tools, the helper that builds the phone app's license notices and
-#      checks its release APK on the computer that builds it, runs cargo; it is never part of SeedLock.)
+#      the core library. (crates/seedlock-tools, the helper that builds the phone app's license notices, checks
+#      its release APK on the computer that builds it, and checks the ready-made programs in the fixed build
+#      environment, runs cargo, and the Linux program it checks, to see its version; it is never part of SeedLock.)
 #   4. unsafe code is limited to terminal and process calls in ui.rs and main.rs (never in the core library)
 #   5. every library SeedLock is built from, on every system and build helpers included, declares a license
 #      and none of them is copyleft (GPL and the like), so SeedLock itself can be under the MIT license (a
@@ -57,7 +58,7 @@ if [ -n "$own" ]; then
     echo "FAIL: networking API used in SeedLock's own code:"; echo "$own"; exit 1
 fi
 
-procs=$(grep -rn 'Command::new' crates/*/src | grep -vE '^crates/seedlock-cli/src/(scan|ui|qrwindow|netcheck)\.rs:|^crates/seedlock-tools/src/notices\.rs:.*Command::new\(cargo\(\)\)' || true)
+procs=$(grep -rn 'Command::new' crates/*/src | grep -vE '^crates/seedlock-cli/src/(scan|ui|qrwindow|netcheck)\.rs:|^crates/seedlock-tools/src/notices\.rs:.*Command::new\(cargo\(\)\)|^crates/seedlock-tools/src/programs\.rs:.*Command::new\(&path\)\.arg\("--version"\)' || true)
 if [ -n "$procs" ] || grep -rq 'std::process' crates/seedlock-core/src crates/seedlock-ffi/src crates/seedlock-qr/src; then
     echo "FAIL: a program is started from somewhere it should not be:"; echo "$procs"; exit 1
 fi
@@ -113,7 +114,7 @@ if [ -n "$not_mit" ]; then
 fi
 ffi_libs=$(printf '%s\n' "$ffi_lic" | grep -cvE '^seedlock-(ffi|qr|core) ')
 mpl=$(printf '%s\n' "$ffi_lic" | grep -cE "$uniffi" || true)
-#    the build helper (crates/seedlock-tools: license notices, APK check): no networking crate either
+#    the build helper (crates/seedlock-tools: license notices, APK check, program check): no networking crate either
 tools_tree=$(cargo tree -p seedlock-tools --edges normal --prefix none --locked) || { echo "FAIL: cargo tree did not work, so the build helper's dependency tree cannot be checked."; exit 1; }
 bad=$(printf '%s\n' "$tools_tree" | sed 's/ (.*//; s/ v/ /' | sort -u | grep -E "$net_crates" || true)
 if [ -n "$bad" ]; then
@@ -142,11 +143,11 @@ echo "unsafe code (terminal and process calls only, never in the core library):"
 grep -rnw unsafe crates/*/src | sed 's/^/  /' | cut -c1-110
 echo "Programs SeedLock can start (nothing else does):"
 grep -rn 'Command::new' crates/*/src | grep -v '^crates/seedlock-tools/' | sed 's/^/  /'
-echo "Programs the build helper starts (on the computer that builds the phone app; never part of SeedLock):"
+echo "Programs the build helper starts (where the app and the programs are built; never part of SeedLock):"
 grep -rn 'Command::new' crates/seedlock-tools/src | sed 's/^/  /'
 
 echo "OK: $count crates in the dependency tree, none with network access; no network API in SeedLock's own source."
 echo "OK: all $libs libraries SeedLock is built from (on every system) have permissive licenses, none copyleft; SeedLock itself is MIT."
 echo "OK: the phone app's library: $ffi_count crates in its dependency tree (on every system), none with network access; all $ffi_libs libraries it is built from have permissive licenses, except UniFFI's own $mpl crates (MPL-2.0)."
 echo "OK: the phone app asks Android only for the camera and the network state (INTERNET is taken out), JNA is its only other library, and its Kotlin code uses no network API."
-echo "OK: the build helper (crates/seedlock-tools) has no networking crate either, and starts only cargo."
+echo "OK: the build helper (crates/seedlock-tools) has no networking crate either, and starts only cargo and the Linux program it checks."

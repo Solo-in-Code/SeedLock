@@ -1,23 +1,47 @@
-# Builds the ready-made SeedLock program for Windows that a release offers for download, and names it after the
-# version (from Cargo.toml). The file goes into the folder "dist":
+# Builds the ready-made programs that a release offers for download, for Linux, Windows and the Mac, in SeedLock's
+# fixed build environment (tools/reproducible/Dockerfile), on Windows with Docker Desktop (or Podman), and puts them
+# into the folder "dist":
 #
-#   dist\seedlock-VERSION-windows-x86_64.exe   for 64-bit Windows on Intel and AMD processors
+#   dist\seedlock-VERSION-linux-x86_64         Linux (64-bit Intel or AMD): a static program, for any such Linux
+#   dist\seedlock-VERSION-windows-x86_64.exe   Windows (64-bit Intel or AMD)
+#   dist\seedlock-VERSION-macos                macOS: one file for Macs with Apple chips and with Intel chips
 #
-# It has the C runtime inside (the setting in .cargo\config.toml), so it also starts on a computer without
-# Microsoft's "Visual C++ Redistributable", and it does not contain the user name of the computer that built it
-# (see below). Start it in SeedLock's folder, in PowerShell or in Command Prompt:
+# Wherever and whenever they are built, they come out the same, byte for byte (docs/DEVELOPMENT.md, "Reproducible
+# builds"). So anyone can check a release's programs: in the release's source code (its "Source code (zip)",
+# unpacked), with the release's SHA256SUMS.txt put into that folder, in PowerShell or in Command Prompt:
 #
-#   powershell -ExecutionPolicy Bypass -File tools\build-release.ps1
+#   powershell -ExecutionPolicy Bypass -File tools\build-release.ps1 SHA256SUMS.txt
 #
-# ("-ExecutionPolicy Bypass" lets Windows run this one script; it changes no setting.) It needs Rust installed with
-# rustup (README, Part 1, Way B) and an internet connection. Linux and macOS: tools/build-release.sh.
+# builds them and says, for each one, whether it is the same file as the release's. ("-ExecutionPolicy Bypass" lets
+# Windows run this one script; it changes no setting.) With -NoCache, Docker builds everything again, without what it
+# kept from earlier builds (to see the same programs come out again). Docker Desktop must be running, with about 4 GB
+# of free disk space. The first time it downloads about 1 GB (a Debian system, Rust and zig) and takes a while; after
+# that, a build takes some minutes.
+# Linux and macOS: tools/build-release.sh.
+
+param([string]$Sums, [switch]$NoCache)
 
 $ErrorActionPreference = 'Stop'
-$target = 'x86_64-pc-windows-msvc'
 
 function Fail([string]$message) {
     [Console]::Error.WriteLine($message)
     exit 1
+}
+
+# Whether a command runs and succeeds, its output hidden. (With 'Stop', Windows PowerShell 5 would stop the script
+# at the first line such a command writes to its error output.)
+function Test-Run([string]$name, [string[]]$arguments) {
+    if (-not (Get-Command $name -ErrorAction SilentlyContinue)) { return $false }
+    $previous = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
+    try {
+        & $name @arguments *> $null
+        return ($LASTEXITCODE -eq 0)
+    } catch {
+        return $false
+    } finally {
+        $ErrorActionPreference = $previous
+    }
 }
 
 $root = Split-Path -Parent $PSScriptRoot
@@ -28,74 +52,84 @@ try {
         if ($line -match '^version = "(.*)"$') { $version = $Matches[1]; break }
     }
     if (-not $version) { Fail 'The version was not found in Cargo.toml.' }
-    if (-not (Get-Command rustup -ErrorAction SilentlyContinue)) {
-        Fail ("This script needs Rust installed with rustup, the official installer (README, Part 1, Way B):`n" +
-              "  https://rustup.rs`nthen open a new window and run this script again.")
+    if ($Sums -and -not (Test-Path -LiteralPath $Sums -PathType Leaf)) {
+        Fail "There is no file ""$Sums"" here: put the release's SHA256SUMS.txt into SeedLock's folder first."
     }
-    if (-not $env:USERPROFILE) { Fail 'The variable USERPROFILE (your user folder) is not set.' }
-
-    # The release programs are built the same way everywhere: into this folder's "target", and with only the
-    # compiler flags of .cargo\config.toml plus the ones below. A RUSTFLAGS variable would replace the setting in
-    # .cargo\config.toml, so this script removes such variables (for this build only).
-    $env:CARGO_TARGET_DIR = Join-Path $root 'target'
-    foreach ($variable in 'RUSTFLAGS', 'CARGO_ENCODED_RUSTFLAGS', 'CARGO_BUILD_RUSTFLAGS',
-                          'CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_RUSTFLAGS') {
-        [Environment]::SetEnvironmentVariable($variable, $null)
+    # Docker, when it can build here: it is running, with BuildKit (its part "buildx"). Otherwise Podman.
+    $engine = $null
+    if ((Test-Run 'docker' @('info')) -and (Test-Run 'docker' @('buildx', 'version'))) {
+        $engine = 'docker'
+    } elseif (Get-Command 'podman' -ErrorAction SilentlyContinue) {
+        $engine = 'podman'
+    } elseif (Get-Command 'docker' -ErrorAction SilentlyContinue) {
+        $engine = 'docker'    # it says itself what is missing
+    }
+    if (-not $engine) {
+        Fail ("This script needs Docker Desktop (docs.docker.com/desktop) or Podman, which run SeedLock's fixed " +
+              "build environment. Install one of them, start it, then run this script again.")
     }
 
-    # Rust writes the full path of each library's source files into the program, for its error messages, and that
-    # path holds this computer's user name: C:\Users\NAME\.cargo\... --remap-path-prefix makes it write ~ in place
-    # of the user folder (and of Cargo's folder, if CARGO_HOME puts it elsewhere). Cargo adds these flags to the
-    # ones in .cargo\config.toml. The end of this script checks that the user name is gone.
-    $folders = @($env:USERPROFILE)
-    $flags = @("'--remap-path-prefix=$($env:USERPROFILE)=~'")
-    if ($env:CARGO_HOME) {
-        $folders += $env:CARGO_HOME
-        $flags += "'--remap-path-prefix=$($env:CARGO_HOME)=~\.cargo'"
+    $programs = @("seedlock-$version-linux-x86_64", "seedlock-$version-windows-x86_64.exe", "seedlock-$version-macos")
+    New-Item -ItemType Directory -Force -Path 'dist' | Out-Null
+    foreach ($program in $programs) {
+        # so that a failed build leaves no older file behind
+        Remove-Item -LiteralPath (Join-Path 'dist' $program) -Force -ErrorAction SilentlyContinue
     }
-    foreach ($folder in $folders) {
-        if ($folder.Contains("'")) { Fail "The folder name $folder contains a ', which this script cannot pass on." }
+
+    Write-Host "Building SeedLock $version for Linux, Windows and the Mac, in the fixed build environment ($engine) ..."
+    # --platform linux/amd64: the same environment on every computer. --output: the programs come out into dist.
+    $env:DOCKER_BUILDKIT = '1'
+    $cache = @()
+    if ($NoCache) { $cache = @('--no-cache') }
+    & $engine build @cache --platform linux/amd64 -f tools/reproducible/Dockerfile --output type=local,dest=dist .
+    if ($LASTEXITCODE -ne 0) {
+        $running = 'Is Docker Desktop running?'
+        if ($engine -eq 'podman') { $running = "Is Podman's machine running (podman machine start)?" }
+        Fail ("`nThe build stopped (see the messages above). $running If it could not download something: check " +
+              "the internet connection and try again.")
     }
-    $config = "target.$target.rustflags=[" + ($flags -join ', ') + ']'
 
-    & rustup target add $target
-    if ($LASTEXITCODE -ne 0) { Fail 'rustup could not add the Windows target (is this computer online?).' }
-    Write-Host "Building SeedLock $version for Windows ($target) ..."
-    & cargo build --release --locked --target $target --config $config
-    if ($LASTEXITCODE -ne 0) { Fail 'The build stopped with an error (see the messages above).' }
-
-    $dist = Join-Path $root 'dist'
-    New-Item -ItemType Directory -Force -Path $dist | Out-Null
-    $name = "seedlock-$version-windows-x86_64.exe"
-    $out = Join-Path $dist $name
-    Copy-Item -LiteralPath (Join-Path (Join-Path (Join-Path $env:CARGO_TARGET_DIR $target) 'release') 'seedlock.exe') `
-              -Destination $out -Force
-
-    $shown = (& $out --version | Out-String).Trim()
-    if ($shown -ne "seedlock $version") {
-        Fail "The new program says ""$shown"" instead of ""seedlock $version"": something went wrong."
+    $expected = @{}
+    if ($Sums) {
+        foreach ($line in (Get-Content -LiteralPath $Sums)) {
+            # the checksum, two spaces (or a space and *), the file's name
+            if ($line -match '^([0-9a-fA-F]{64}) [ *](.+)$') { $expected[$Matches[2].Trim()] = $Matches[1].ToLowerInvariant() }
+        }
     }
-    $text = [Text.Encoding]::ASCII.GetString([IO.File]::ReadAllBytes($out))
-    foreach ($folder in $folders) {
-        $path = $folder.TrimEnd([char[]]('\', '/'))
-        foreach ($form in ($path + '\'), ($path.Replace('\', '/') + '/')) {
-            if ($text.IndexOf($form, [StringComparison]::OrdinalIgnoreCase) -ge 0) {
-                Fail "The new program still contains the path $path (and with it your user name): something went wrong."
+    Write-Host ''
+    $same = 0
+    $different = 0
+    foreach ($program in $programs) {
+        $path = Join-Path 'dist' $program
+        if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { Fail "dist\$program is missing: something went wrong." }
+        $sum = (Get-FileHash -Algorithm SHA256 -LiteralPath $path).Hash.ToLowerInvariant()
+        Write-Host "dist\$program"
+        Write-Host "  SHA-256: $sum"
+        if ($Sums) {
+            if (-not $expected.ContainsKey($program)) {
+                Write-Host "  NOT in $Sums (is the list of another version?)"
+                $different++
+            } elseif ($expected[$program] -eq $sum) {
+                Write-Host "  the same as in $Sums"
+                $same++
+            } else {
+                Write-Host "  DIFFERENT from $Sums, which says $($expected[$program])"
+                $different++
             }
         }
     }
-    # A released program works only offline, with no way around it: the stand-in network that the test builds read
-    # (crates/seedlock-cli, feature test-hooks) must not be in it.
-    if ($text.IndexOf('SEEDLOCK_TEST_NET_DIR', [StringComparison]::Ordinal) -ge 0) {
-        Fail 'The new program can be made to believe that the computer is offline (it was built for the tests): something went wrong.'
-    }
-
-    $sum = (Get-FileHash -Algorithm SHA256 -LiteralPath $out).Hash.ToLowerInvariant()
     Write-Host ''
-    Write-Host "Ready: dist\$name"
-    Write-Host "SHA-256: $sum"
-    Write-Host ('Bring this file (and the other systems'' files) to one computer to make SHA256SUMS.txt: see ' +
-                '"Making a release" in docs/DEVELOPMENT.md.')
+    if (-not $Sums) {
+        Write-Host ('Ready. For a release, bring these programs and the phone app together to make SHA256SUMS.txt: ' +
+                    'see "Making a release" in docs/DEVELOPMENT.md.')
+    } elseif ($different -eq 0) {
+        Write-Host "All $same programs are the same, byte for byte, as the ones in ${Sums}: they were built from this source code."
+    } else {
+        $which = "$different of the 3 programs are"
+        if ($different -eq 1) { $which = '1 of the 3 programs is' }
+        Fail ("$which NOT the same as in ${Sums}. Check that this is the source code of the same release (Source " +
+              'code (zip) of its page), unchanged; see "Reproducible builds" in docs/DEVELOPMENT.md.')
+    }
 }
 finally {
     Pop-Location

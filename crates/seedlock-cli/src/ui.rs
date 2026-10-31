@@ -6,7 +6,7 @@
 //! behave as scripts expect.
 
 use qrcode::{render::svg, render::unicode, types::{Color, Version}, EcLevel, QrCode};
-use std::io::{self, BufRead, IsTerminal, Read, Write};
+use std::io::{self, BufRead, IsTerminal, Write};
 use std::path::Path;
 use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -224,6 +224,7 @@ impl KeyReader {
     }
 
     fn byte(&mut self) -> Option<u8> {
+        use std::io::Read; // here only: the rest of the file, and Windows, do not need it
         if let Some(b) = self.pending.take() {
             return Some(b);
         }

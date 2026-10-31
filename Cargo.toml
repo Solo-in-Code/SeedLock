@@ -6,7 +6,7 @@ members = ["crates/seedlock-core", "crates/seedlock-cli", "crates/seedlock-qr", 
 default-members = ["crates/seedlock-core", "crates/seedlock-cli"]
 
 [workspace.package]
-version = "0.3.0"
+version = "0.3.1"
 edition = "2021"
 rust-version = "1.85"
 license = "MIT"

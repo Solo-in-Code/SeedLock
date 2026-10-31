@@ -23,7 +23,7 @@ zeroize = "1"
 # Only for the test scripts in tools/ (cargo build --release --locked -p seedlock-cli --features test-hooks): the program
 # then reads stand-in routing tables from SEEDLOCK_TEST_NET_DIR, so that the tests can show it a computer that is
 # offline or online. Debug builds (cargo test) read them too. A released program never does: it has no way to be made
-# to believe that the computer is offline (tools/build-release.sh checks that).
+# to believe that the computer is offline (seedlock-tools check-programs checks that, in the fixed build environment).
 test-hooks = []
 
 [dev-dependencies]

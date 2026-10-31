@@ -707,6 +707,42 @@ fn the_readme_and_the_guides_show_this_version() {
     assert!(found >= 4, "the README and the guides show the version in at least 4 places, not {found}");
 }
 
+/// The fixed build environment (tools/reproducible/Dockerfile) and DEVELOPMENT.md name the same versions of what builds
+/// the release programs (Rust, zig, cargo-zigbuild), so that a new version in the one cannot leave an old one in the
+/// other.
+#[test]
+fn the_build_environment_and_the_documents_name_the_same_tool_versions() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let read = |path: &str| std::fs::read_to_string(root.join(path)).unwrap();
+    // the version that follows `word`, at each place in `text` where a version follows it
+    let versions = |text: &str, word: &str| -> Vec<String> {
+        text.match_indices(word)
+            .map(|(at, _)| {
+                let number: String = text[at + word.len()..].chars().take_while(|c| c.is_ascii_digit() || *c == '.').collect();
+                number.trim_end_matches('.').to_string()
+            })
+            .filter(|number| number.contains('.'))
+            .collect()
+    };
+    let one = |found: Vec<String>, what: &str| -> String {
+        assert!(!found.is_empty(), "no version of {what} found");
+        assert!(found.iter().all(|v| *v == found[0]), "{what}: different versions {found:?}");
+        found[0].clone()
+    };
+    let dockerfile = read("tools/reproducible/Dockerfile");
+    let rust = one(versions(&dockerfile, "--default-toolchain "), "Rust in the Dockerfile");
+    let zig = one([versions(&dockerfile, "ziglang-"), versions(&dockerfile, "zig ")].concat(), "zig in the Dockerfile");
+    let cargo_zigbuild = one(
+        [versions(&dockerfile, "cargo_zigbuild-"), versions(&dockerfile, "cargo-zigbuild ")].concat(),
+        "cargo-zigbuild in the Dockerfile",
+    );
+    let development = read("docs/DEVELOPMENT.md");
+    assert_eq!(one(versions(&development, "zig "), "zig in DEVELOPMENT.md"), zig);
+    assert_eq!(one(versions(&development, "cargo-zigbuild "), "cargo-zigbuild in DEVELOPMENT.md"), cargo_zigbuild);
+    assert!(versions(&development, "Rust ").contains(&rust), "DEVELOPMENT.md (What is fixed) must name Rust {rust}");
+    assert!(versions(&development, "built with ").contains(&rust), "DEVELOPMENT.md (What you need) must name Rust {rust}");
+}
+
 /// The release key's fingerprint is the same everywhere the README and the guides give it (in groups of four, or in one
 /// piece in a command), and it is the fingerprint of the key in docs/release-key.asc, so that a new release key cannot
 /// leave an old fingerprint or an old key file behind.
