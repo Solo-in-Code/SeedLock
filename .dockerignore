@@ -1,0 +1,29 @@
+# What the fixed build environment (tools/reproducible/Dockerfile) leaves out when it copies SeedLock's folder in:
+# what builds make, and anything private that may be in the folder. Only the source code is needed.
+target
+dist
+vendor
+seedlocker backups
+**/seedlocker backups
+seedlocker transactions
+**/seedlocker transactions
+**/*.seedlock
+**/*.psbt
+**/*.jks
+**/*.keystore
+**/*.apk
+**/*.aab
+android/.gradle
+android/.idea
+android/.kotlin
+android/build
+android/app/build
+android/app/release
+android/local.properties
+android/app/src/main/jniLibs
+android/app/src/main/java/org/seedlock/ffi
+android/app/src/main/assets
+**/__pycache__
+**/*.pyc
+node_modules
+.git
