@@ -226,6 +226,15 @@ class MainActivity : Activity() {
     }
 
     /**
+     * Closes every dialog. A password manager's autofill session in a prompt for a backup's password ends first,
+     * so that it is offered nothing to save (see `allowAutofill`).
+     */
+    private fun closeDialogs() {
+        endAutofill(this)
+        for (dialog in ArrayList(dialogs)) dialog.dismiss()
+    }
+
+    /**
      * Marks `dialog` (shown with [showSecure]) as a prompt for a backup's password. No backup is open while it
      * asks, so SeedLock may be left meanwhile for up to [KEEP_OPEN_MS], to copy the password from a password
      * manager on this phone, without closing the prompt or the screen below it (see [onStop]). When the prompt
@@ -281,7 +290,7 @@ class MainActivity : Activity() {
             val away = SystemClock.elapsedRealtime() - leftAtPrompt
             leftAtPrompt = 0L
             if (away > KEEP_OPEN_MS) {
-                for (dialog in ArrayList(dialogs)) dialog.dismiss()
+                closeDialogs()
                 home()
                 say(
                     "Closed",
@@ -305,7 +314,7 @@ class MainActivity : Activity() {
             awayDuringPrompt = true
             return
         }
-        for (dialog in ArrayList(dialogs)) dialog.dismiss()
+        closeDialogs()
         if (SystemClock.elapsedRealtime() <= keepOpenUntil) {
             // gone to paste a copied password into a password manager on this phone: back soon
             keptOpen = true
@@ -403,7 +412,12 @@ class MainActivity : Activity() {
             return
         }
         when {
-            !clipboardHolds() -> Toast.makeText(this, "Pasted. SeedLock emptied the clipboard.", Toast.LENGTH_SHORT).show()
+            // what keyboards such as Gboard and Samsung's keep of what was copied, no app can reach
+            !clipboardHolds() -> Toast.makeText(
+                this,
+                "Pasted. SeedLock emptied the clipboard, but your keyboard may keep its own copy: autofill avoids that.",
+                Toast.LENGTH_LONG,
+            ).show()
             attempt < CLIPBOARD_TRIES -> {
                 clearClipboard()
                 clock.postDelayed({ checkEmptied(attempt + 1) }, CLIPBOARD_CHECK_MS)
@@ -461,7 +475,7 @@ class MainActivity : Activity() {
      * SeedLock copied is taken off the clipboard. The first screen then says why SeedLock does not work.
      */
     private fun closeEverything(changed: Boolean) {
-        for (dialog in ArrayList(dialogs)) dialog.dismiss()
+        closeDialogs()
         pendingFile = null
         waitingAnswer = null
         inPicker = false
@@ -501,7 +515,7 @@ class MainActivity : Activity() {
 
     override fun onDestroy() {
         clock.removeCallbacks(watch)
-        for (dialog in ArrayList(dialogs)) dialog.dismiss()
+        closeDialogs()
         stack.lastOrNull()?.hidden()
         while (stack.isNotEmpty()) {
             stack.removeAt(stack.size - 1).closed()
