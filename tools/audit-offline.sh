@@ -135,7 +135,9 @@ if ! grep -qE '<uses-permission android:name="android\.permission\.INTERNET" too
     echo "FAIL: the app's manifest no longer takes the INTERNET permission out (tools:node=\"remove\")."; exit 1
 fi
 libraries=$(sed -n '/^dependencies {/,/^}/p' "$app/build.gradle.kts" | grep -vE '^ *(//.*)?$|^dependencies \{$|^\}$' || true)
-if [ "$libraries" != '    implementation("net.java.dev.jna:jna:5.18.1@aar")' ] || [ "$(grep -c 'dependencies' "$app/build.gradle.kts")" != 1 ]; then
+# (the word "dependencies" once only: no other block of libraries; dependenciesInfo is a setting of the signature block)
+if [ "$libraries" != '    implementation("net.java.dev.jna:jna:5.18.1@aar")' ] ||
+   [ "$(grep -o 'dependencies[A-Za-z]*' "$app/build.gradle.kts" | grep -cx dependencies)" != 1 ]; then
     echo "FAIL: the app has other libraries than JNA (android/app/build.gradle.kts); check what they do by hand:"; echo "$libraries"; exit 1
 fi
 

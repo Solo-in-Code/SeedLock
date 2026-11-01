@@ -1,22 +1,25 @@
-# Builds the ready-made programs that a release offers for download, for Linux, Windows and the Mac, in SeedLock's
-# fixed build environment (tools/reproducible/Dockerfile), on Windows with Docker Desktop (or Podman), and puts them
-# into the folder "dist":
+# Builds what a release offers for download, in SeedLock's fixed build environment (tools/reproducible/Dockerfile),
+# on Windows with Docker Desktop (or Podman): the ready-made programs for Linux, Windows and the Mac, and the phone
+# app before it is signed. Into the folder "dist":
 #
-#   dist\seedlock-VERSION-linux-x86_64         Linux (64-bit Intel or AMD): a static program, for any such Linux
-#   dist\seedlock-VERSION-windows-x86_64.exe   Windows (64-bit Intel or AMD)
-#   dist\seedlock-VERSION-macos                macOS: one file for Macs with Apple chips and with Intel chips
+#   dist\seedlock-VERSION-linux-x86_64          Linux (64-bit Intel or AMD): a static program, for any such Linux
+#   dist\seedlock-VERSION-windows-x86_64.exe    Windows (64-bit Intel or AMD)
+#   dist\seedlock-VERSION-macos                 macOS: one file for Macs with Apple chips and with Intel chips
+#   dist\seedlock-VERSION-android-unsigned.apk  the phone app, which tools\sign-apk.ps1 then signs for a release
 #
 # Wherever and whenever they are built, they come out the same, byte for byte (docs/DEVELOPMENT.md, "Reproducible
-# builds"). So anyone can check a release's programs: in the release's source code (its "Source code (zip)",
-# unpacked), with the release's SHA256SUMS.txt put into that folder, in PowerShell or in Command Prompt:
+# builds"). So anyone can check a release: in its source code (its "Source code (zip)", unpacked), with the
+# release's SHA256SUMS.txt put into that folder (and, to check the phone app too, the release's
+# seedlock-VERSION-android.apk), in PowerShell or in Command Prompt:
 #
 #   powershell -ExecutionPolicy Bypass -File tools\build-release.ps1 SHA256SUMS.txt
 #
-# builds them and says, for each one, whether it is the same file as the release's. ("-ExecutionPolicy Bypass" lets
-# Windows run this one script; it changes no setting.) With -NoCache, Docker builds everything again, without what it
-# kept from earlier builds (to see the same programs come out again). Docker Desktop must be running, with about 4 GB
-# of free disk space. The first time it downloads about 1 GB (a Debian system, Rust and zig) and takes a while; after
-# that, a build takes some minutes.
+# builds them and says, for each program, whether it is the same file as the release's, and whether the release's
+# app is this build with a signature added and nothing else. ("-ExecutionPolicy Bypass" lets Windows run this one
+# script; it changes no setting.) With -NoCache, everything is built again, without what Docker kept from earlier
+# builds (to see the same files come out again). Docker Desktop must be running, with about 15 GB of free disk space.
+# The first time it downloads about 3 GB (a Debian system, Rust, zig, Java, Gradle and Android's tools) and takes a
+# while; after that, a build takes some minutes.
 # Linux and macOS: tools/build-release.sh.
 
 param([string]$Sums, [switch]$NoCache)
@@ -42,6 +45,10 @@ function Test-Run([string]$name, [string[]]$arguments) {
     } finally {
         $ErrorActionPreference = $previous
     }
+}
+
+function Get-Sha256([string]$path) {
+    return (Get-FileHash -Algorithm SHA256 -LiteralPath $path).Hash.ToLowerInvariant()
 }
 
 $root = Split-Path -Parent $PSScriptRoot
@@ -70,14 +77,20 @@ try {
     }
 
     $programs = @("seedlock-$version-linux-x86_64", "seedlock-$version-windows-x86_64.exe", "seedlock-$version-macos")
+    $app = "seedlock-$version-android-unsigned.apk"
+    $releaseApp = "seedlock-$version-android.apk"
+    $releaseUnsigned = "seedlock-$version-android-release-without-signature.apk"
     New-Item -ItemType Directory -Force -Path 'dist' | Out-Null
-    foreach ($program in $programs) {
+    foreach ($file in ($programs + @($app, $releaseUnsigned))) {
         # so that a failed build leaves no older file behind
-        Remove-Item -LiteralPath (Join-Path 'dist' $program) -Force -ErrorAction SilentlyContinue
+        Remove-Item -LiteralPath (Join-Path 'dist' $file) -Force -ErrorAction SilentlyContinue
     }
 
-    Write-Host "Building SeedLock $version for Linux, Windows and the Mac, in the fixed build environment ($engine) ..."
-    # --platform linux/amd64: the same environment on every computer. --output: the programs come out into dist.
+    Write-Host ("Building SeedLock $version for Linux, Windows, the Mac and Android, in the fixed build environment " +
+                "($engine) ...")
+    $appCompared = Test-Path -LiteralPath $releaseApp -PathType Leaf
+    if ($appCompared) { Write-Host "($releaseApp is here: the release's app is compared with the one built.)" }
+    # --platform linux/amd64: the same environment on every computer. --output: what is built comes out into dist.
     $env:DOCKER_BUILDKIT = '1'
     $cache = @()
     if ($NoCache) { $cache = @('--no-cache') }
@@ -85,15 +98,18 @@ try {
     if ($LASTEXITCODE -ne 0) {
         $running = 'Is Docker Desktop running?'
         if ($engine -eq 'podman') { $running = "Is Podman's machine running (podman machine start)?" }
-        Fail ("`nThe build stopped (see the messages above). $running If it could not download something: check " +
-              "the internet connection and try again.")
+        Fail ("`nThe build stopped (see the messages above). $running If it said ""no space left on device"": free " +
+              "some disk space (about 15 GB are needed). If it could not download something: check the internet " +
+              "connection and try again.")
     }
 
     $expected = @{}
     if ($Sums) {
         foreach ($line in (Get-Content -LiteralPath $Sums)) {
             # the checksum, two spaces (or a space and *), the file's name
-            if ($line -match '^([0-9a-fA-F]{64}) [ *](.+)$') { $expected[$Matches[2].Trim()] = $Matches[1].ToLowerInvariant() }
+            if ($line -match '^([0-9a-fA-F]{64}) [ *](.+)$') {
+                $expected[$Matches[2].Trim()] = $Matches[1].ToLowerInvariant()
+            }
         }
     }
     Write-Host ''
@@ -101,8 +117,10 @@ try {
     $different = 0
     foreach ($program in $programs) {
         $path = Join-Path 'dist' $program
-        if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { Fail "dist\$program is missing: something went wrong." }
-        $sum = (Get-FileHash -Algorithm SHA256 -LiteralPath $path).Hash.ToLowerInvariant()
+        if (-not (Test-Path -LiteralPath $path -PathType Leaf)) {
+            Fail "dist\$program is missing: something went wrong."
+        }
+        $sum = Get-Sha256 $path
         Write-Host "dist\$program"
         Write-Host "  SHA-256: $sum"
         if ($Sums) {
@@ -118,16 +136,58 @@ try {
             }
         }
     }
+
+    $appPath = Join-Path 'dist' $app
+    if (-not (Test-Path -LiteralPath $appPath -PathType Leaf)) { Fail "dist\$app is missing: something went wrong." }
+    $appSum = Get-Sha256 $appPath
+    Write-Host "dist\$app"
+    Write-Host "  SHA-256: $appSum"
+    if ($appCompared) {
+        $releaseUnsignedPath = Join-Path 'dist' $releaseUnsigned
+        if (-not (Test-Path -LiteralPath $releaseUnsignedPath -PathType Leaf)) {
+            Fail "dist\$releaseUnsigned is missing: something went wrong."
+        }
+        if ((Get-Sha256 $releaseUnsignedPath) -eq $appSum) {
+            Write-Host "  the same as $releaseApp (the release's app) without its signature"
+        } else {
+            Write-Host "  DIFFERENT from $releaseApp (the release's app) without its signature"
+            $different++
+        }
+        if ($Sums) {
+            if (-not $expected.ContainsKey($releaseApp)) {
+                Write-Host "  $releaseApp is NOT in $Sums"
+                $different++
+            } elseif ($expected[$releaseApp] -eq (Get-Sha256 $releaseApp)) {
+                Write-Host "  and $releaseApp is the file that $Sums names"
+            } else {
+                Write-Host "  but $releaseApp is NOT the file that $Sums names (it says $($expected[$releaseApp]))"
+                $different++
+            }
+        }
+    } elseif ($Sums) {
+        Write-Host "  (to compare the release's app too, put its $releaseApp into this folder)"
+    }
+
     Write-Host ''
-    if (-not $Sums) {
-        Write-Host ('Ready. For a release, bring these programs and the phone app together to make SHA256SUMS.txt: ' +
-                    'see "Making a release" in docs/DEVELOPMENT.md.')
+    if (-not $Sums -and -not $appCompared) {
+        Write-Host ('Ready. For a release, sign the app next: powershell -ExecutionPolicy Bypass -File ' +
+                    'tools\sign-apk.ps1 PATH\seedlock-android.jks (see "Making a release" in docs/DEVELOPMENT.md).')
     } elseif ($different -eq 0) {
-        Write-Host "All $same programs are the same, byte for byte, as the ones in ${Sums}: they were built from this source code."
+        if ($Sums -and $appCompared) {
+            Write-Host ("All $same programs are the same, byte for byte, as the ones in ${Sums}, and the release's app " +
+                        'is the app built here with its signature added and nothing else: they were built from this ' +
+                        'source code.')
+        } elseif ($Sums) {
+            Write-Host ("All $same programs are the same, byte for byte, as the ones in ${Sums}: they were built from " +
+                        'this source code.')
+        } else {
+            Write-Host ("The release's app is the app built here, with its signature added and nothing else: it was " +
+                        'built from this source code.')
+        }
     } else {
-        $which = "$different of the 3 programs are"
-        if ($different -eq 1) { $which = '1 of the 3 programs is' }
-        Fail ("$which NOT the same as in ${Sums}. Check that this is the source code of the same release (Source " +
+        $which = "$different files are"
+        if ($different -eq 1) { $which = '1 file is' }
+        Fail ("$which NOT the same as the release's. Check that this is the source code of the same release (Source " +
               'code (zip) of its page), unchanged; see "Reproducible builds" in docs/DEVELOPMENT.md.')
     }
 }

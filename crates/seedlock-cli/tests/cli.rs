@@ -741,6 +741,43 @@ fn the_build_environment_and_the_documents_name_the_same_tool_versions() {
     assert_eq!(one(versions(&development, "cargo-zigbuild "), "cargo-zigbuild in DEVELOPMENT.md"), cargo_zigbuild);
     assert!(versions(&development, "Rust ").contains(&rust), "DEVELOPMENT.md (What is fixed) must name Rust {rust}");
     assert!(versions(&development, "built with ").contains(&rust), "DEVELOPMENT.md (What you need) must name Rust {rust}");
+
+    // The phone app's tools: the same in the Dockerfile, in the app's build files (which Android Studio reads too) and
+    // in DEVELOPMENT.md.
+    let digits = |text: &str, word: &str| -> Vec<String> {
+        text.match_indices(word)
+            .map(|(at, _)| text[at + word.len()..].chars().take_while(char::is_ascii_digit).collect::<String>())
+            .filter(|number| !number.is_empty())
+            .collect()
+    };
+    let java = one([versions(&dockerfile, "jdk-"), versions(&dockerfile, "Temurin ")].concat(), "Java in the Dockerfile");
+    let gradle = one([versions(&dockerfile, "gradle-"), versions(&dockerfile, "Gradle ")].concat(), "Gradle in the Dockerfile");
+    let ndk = one([versions(&dockerfile, "ANDROID_NDK_VERSION="), versions(&dockerfile, "NDK r28c (")].concat(), "the NDK");
+    let build_tools = one(
+        [versions(&dockerfile, "build-tools;"), versions(&dockerfile, "build-tools/"), versions(&dockerfile, "build tools ")].concat(),
+        "the build tools in the Dockerfile",
+    );
+    let platform = one(digits(&dockerfile, "platforms;android-"), "Android's platform in the Dockerfile");
+    let command_line_tools = one(
+        [digits(&dockerfile, "commandlinetools-linux-"), digits(&dockerfile, "command-line tools ")].concat(),
+        "Android's command-line tools in the Dockerfile",
+    );
+    let app = read("android/app/build.gradle.kts");
+    assert_eq!(one(versions(&app, "buildToolsVersion = \""), "buildToolsVersion"), build_tools);
+    assert_eq!(one(versions(&app, "ndkVersion = \""), "ndkVersion"), ndk);
+    assert_eq!(one(digits(&app, "compileSdk = "), "compileSdk"), platform);
+    let wrapper = read("android/gradle/wrapper/gradle-wrapper.properties");
+    assert_eq!(one(versions(&wrapper, "gradle-"), "Gradle in gradle-wrapper.properties"), gradle);
+    for (what, version) in [
+        ("Java (Temurin)", format!("Temurin {java}")),
+        ("Gradle", format!("Gradle {gradle}")),
+        ("the NDK", ndk.clone()),
+        ("the build tools", format!("build tools {build_tools}")),
+        ("Android's platform", format!("platform ({platform})")),
+        ("Android's command-line tools", format!("command-line tools {command_line_tools}")),
+    ] {
+        assert!(development.contains(&version), "DEVELOPMENT.md (What is fixed) must name {what} as \"{version}\"");
+    }
 }
 
 /// The release key's fingerprint is the same everywhere the README and the guides give it (in groups of four, or in one

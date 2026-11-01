@@ -4,6 +4,8 @@
 //! ```text
 //! seedlock-tools notices --android [--out FILE]      the license notices the app shows (android/build-rust.sh)
 //! seedlock-tools check-apk FILE                      checks a release APK and puts it into dist/ (DEVELOPMENT.md)
+//! seedlock-tools check-apk --unsigned FILE           checks the app as the fixed build environment makes it
+//! seedlock-tools unsigned-apk SIGNED OUT             writes a signed APK without its signature (to compare it)
 //! seedlock-tools check-programs DIR VERSION          checks the three ready-made programs (tools/reproducible)
 //! ```
 //!
@@ -16,6 +18,8 @@ mod programs;
 const USAGE: &str = "SeedLock's tools for its releases (run them in SeedLock's folder):
   cargo run --locked -p seedlock-tools -- notices --android --out FILE   write the app's license notices
   cargo run --locked -p seedlock-tools -- check-apk FILE                 check a release APK, put it into dist/
+  cargo run --locked -p seedlock-tools -- check-apk --unsigned FILE      check the app before it is signed
+  cargo run --locked -p seedlock-tools -- unsigned-apk SIGNED OUT        write a signed APK without its signature
   cargo run --locked -p seedlock-tools -- check-programs DIR VERSION     check the three ready-made programs";
 
 fn main() {
@@ -23,6 +27,7 @@ fn main() {
     let result = match args.first().map(String::as_str) {
         Some("notices") => notices::run(&args[1..]),
         Some("check-apk") => apk::run(&args[1..]),
+        Some("unsigned-apk") => apk::run_take_off_signature(&args[1..]),
         Some("check-programs") => programs::run(&args[1..]),
         _ => Err(USAGE.to_string()),
     };

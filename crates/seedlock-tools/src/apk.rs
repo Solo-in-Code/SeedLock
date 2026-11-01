@@ -10,10 +10,24 @@
 //! - it carries the license notices of this version;
 //! - it is signed (APK Signature Scheme v2 or v3) with SeedLock's release certificate, not with Android
 //!   Studio's test key;
-//! - the path of this computer's home folder (and with it the user name) is nowhere in it.
+//! - neither the path of this computer's home folder (and with it the user name) nor a folder of the fixed
+//!   build environment is in it;
+//! - without its signature, it is byte for byte the app built in the fixed build environment
+//!   (`dist/seedlock-VERSION-android-unsigned.apk`, tools/reproducible).
 //!
 //! It reads the signature's certificate but does not check the signature itself: Android does that when it
-//! installs the app (and `apksigner verify` from the Android SDK can too).
+//! installs the app (and `apksigner verify` from the Android SDK can too, as tools/sign-apk.sh does).
+//!
+//! `check-apk --unsigned FILE` checks the app as the fixed build environment makes it, before it is signed:
+//! the same, but no signature yet, and none of the environment's folders inside. `unsigned-apk SIGNED OUT`
+//! writes a signed APK without its signature, as it was before it was signed: so anyone can compare a
+//! release's app with the one they built themselves.
+//!
+//! Signing an APK (with APK Signature Scheme v2 or v3) changes nothing in it but this: an APK Signing Block
+//! is put between the files and the ZIP archive's central directory (apksigner first pads the files with
+//! zeros, so that the block starts at a multiple of 4096 bytes), and the end record, which says where the
+//! central directory starts, is changed to match. Taking the block (and that padding) off gives back the APK
+//! as it was before it was signed.
 
 use std::collections::BTreeSet;
 use std::fs;
@@ -57,15 +71,85 @@ pub fn version_code(version: &str) -> Option<u32> {
     }
 }
 
-/// `seedlock-tools check-apk FILE`
+/// The fixed build environment's folders (tools/reproducible): none of them may be inside the app it builds.
+/// ("/seedlock/" alone would also find the app's own Java packages, org/seedlock/...)
+pub const ENVIRONMENT_FOLDERS: [&str; 6] =
+    ["/seedlock/android/", "/seedlock/crates/", "/seedlock/target/", "/usr/local/cargo/", "/usr/local/rustup/", "/opt/android-sdk/"];
+
+/// Where the fixed build environment's app is, before it is signed: tools/build-release.sh puts it there.
+pub fn unsigned_name(version: &str) -> String {
+    format!("seedlock-{version}-android-unsigned.apk")
+}
+
+/// `seedlock-tools check-apk [--unsigned] FILE`
 pub fn run(args: &[String]) -> Result<(), String> {
-    let [path] = args else {
-        return Err("check-apk: give the APK's file, for example:\n  seedlock-tools check-apk android/app/release/app-release.apk".into());
+    match args {
+        [flag, path] if flag == "--unsigned" => run_unsigned(path),
+        [path] if !path.starts_with("--") => run_signed(path),
+        _ => Err("check-apk: give the APK's file, for example:\n  seedlock-tools check-apk dist/seedlock-X.Y.Z-android.apk\n\
+                  or, for the app the fixed build environment made, before it is signed:\n  \
+                  seedlock-tools check-apk --unsigned dist/seedlock-X.Y.Z-android-unsigned.apk"
+            .into()),
+    }
+}
+
+/// `seedlock-tools check-apk --unsigned FILE`: the app as the fixed build environment makes it.
+fn run_unsigned(path: &str) -> Result<(), String> {
+    let bytes = fs::read(path).map_err(|e| format!("cannot read {path}: {e}"))?;
+    let version = env!("CARGO_PKG_VERSION");
+    println!("Checking {path} ({} KB) for SeedLock {version}, before it is signed ...", bytes.len() / 1024);
+    let (_, signed) = without_signature(&bytes)?;
+    if signed {
+        return Err("\nIt is signed already: this check is for the app before it is signed (check-apk without --unsigned \
+                    checks a signed one)."
+            .into());
+    }
+    let mut apk = Apk::default();
+    check_contents(&Zip::read(&bytes)?, version, &forbidden_folders(), &mut apk)?;
+    for line in &apk.checked {
+        println!("  {line}");
+    }
+    if !apk.problems.is_empty() {
+        let list: Vec<String> = apk.problems.iter().map(|p| format!("  - {p}")).collect();
+        return Err(format!("\nThis app cannot be released:\n{}", list.join("\n")));
+    }
+    println!("  Not signed yet, and nothing between its files and its central directory");
+    println!("SHA-256: {}", sha256::Hash::hash(&bytes));
+    Ok(())
+}
+
+/// `seedlock-tools unsigned-apk SIGNED OUT`: a signed APK without its signature, as it was before it was signed.
+pub fn run_take_off_signature(args: &[String]) -> Result<(), String> {
+    let [input, output] = args else {
+        return Err("unsigned-apk: give the signed APK and the file to write, for example:\n  \
+                    seedlock-tools unsigned-apk seedlock-X.Y.Z-android.apk without-signature.apk"
+            .into());
     };
+    let bytes = fs::read(input).map_err(|e| format!("cannot read {input}: {e}"))?;
+    let (unsigned, signed) = without_signature(&bytes)?;
+    if !signed {
+        return Err(format!("{input} is not signed (it has no APK Signing Block)."));
+    }
+    let zip = Zip::read(&bytes)?;
+    let (certificate, scheme, _) = signing_certificate(&bytes, zip.central_directory)?;
+    let certificate = fingerprint(&certificate);
+    println!("{input}: signed (APK Signature Scheme {scheme}) with the certificate");
+    println!("  SHA-256 {certificate}");
+    match RELEASE_CERTIFICATE {
+        Some(expected) if same_fingerprint(expected, &certificate) => println!("  That is SeedLock's release certificate."),
+        _ => println!("  That is NOT SeedLock's release certificate."),
+    }
+    fs::write(output, &unsigned).map_err(|e| format!("cannot write {output}: {e}"))?;
+    println!("Without its signature: {output} ({} KB), SHA-256 {}", unsigned.len() / 1024, sha256::Hash::hash(&unsigned));
+    Ok(())
+}
+
+/// `seedlock-tools check-apk FILE`: a signed release APK.
+fn run_signed(path: &str) -> Result<(), String> {
     let bytes = fs::read(path).map_err(|e| format!("cannot read {path}: {e}"))?;
     let version = env!("CARGO_PKG_VERSION");
     println!("Checking {path} ({} KB) for SeedLock {version} ...", bytes.len() / 1024);
-    let apk = check(&bytes, version, &home_folders())?;
+    let apk = check(&bytes, version, &forbidden_folders())?;
     for line in &apk.checked {
         println!("  {line}");
     }
@@ -95,6 +179,25 @@ pub fn run(args: &[String]) -> Result<(), String> {
         ));
     }
     println!("  That is SeedLock's release certificate.");
+    // the app the fixed build environment made, which this one must be with a signature added, and nothing else
+    let built = PathBuf::from("dist").join(unsigned_name(version));
+    let Ok(unsigned) = fs::read(&built) else {
+        return Err(format!(
+            "\n{} is not there. A release's app is the one built in the fixed build environment: build it with \
+             tools/build-release.sh, sign it with tools/sign-apk.sh, then check it again (DEVELOPMENT.md, Making a \
+             release).",
+            built.display()
+        ));
+    };
+    let (taken_off, _) = without_signature(&bytes)?;
+    if taken_off != unsigned {
+        return Err(format!(
+            "\nWithout its signature, this APK is not the app built in the fixed build environment ({}). Sign that \
+             one, with tools/sign-apk.sh, and do not build the app otherwise for a release.",
+            built.display()
+        ));
+    }
+    println!("  Without its signature, it is byte for byte the app built in the fixed build environment ({})", built.display());
     let target = PathBuf::from("dist").join(format!("seedlock-{version}-android.apk"));
     match fs::read(&target) {
         Ok(existing) if existing == bytes => println!("\nIt is already in {} (the same file).", target.display()),
@@ -121,8 +224,15 @@ pub fn same_fingerprint(a: &str, b: &str) -> bool {
     plain(a).len() == 64 && plain(a) == plain(b)
 }
 
-/// The paths that must not be inside the app: this computer's home folder (it holds the user name) and
-/// Cargo's folder, the way Unix and Windows write them.
+/// The paths that must not be inside the app: this computer's home folder (it holds the user name), Cargo's
+/// folder (the way Unix and Windows write them), and the fixed build environment's folders.
+fn forbidden_folders() -> Vec<String> {
+    let mut forms = home_folders();
+    forms.extend(ENVIRONMENT_FOLDERS.iter().map(|f| f.to_string()));
+    forms
+}
+
+/// This computer's home folder and Cargo's folder, the way Unix and Windows write them.
 fn home_folders() -> Vec<String> {
     let mut forms = Vec::new();
     for variable in ["HOME", "USERPROFILE", "CARGO_HOME"] {
@@ -160,6 +270,28 @@ pub struct Apk {
 pub fn check(bytes: &[u8], version: &str, home: &[String]) -> Result<Apk, String> {
     let zip = Zip::read(bytes)?;
     let mut apk = Apk::default();
+    check_contents(&zip, version, home, &mut apk)?;
+
+    // its signature
+    match signing_certificate(bytes, zip.central_directory) {
+        Ok((certificate, scheme, signers)) => {
+            apk.certificate = fingerprint(&certificate);
+            apk.scheme = scheme;
+            apk.names = certificate_names(&certificate);
+            if signers != 1 {
+                apk.problems.push(format!("It is signed by {signers} keys, not by one."));
+            }
+            if apk.names.iter().any(|n| n.contains("Android Debug")) {
+                apk.problems.push("It is signed with Android Studio's test key (Android Debug), not with SeedLock's own key.".into());
+            }
+        }
+        Err(e) => apk.problems.push(e),
+    }
+    Ok(apk)
+}
+
+/// Everything [`check`] checks but the signature: what the app is, and what is in it.
+fn check_contents(zip: &Zip, version: &str, home: &[String], apk: &mut Apk) -> Result<(), String> {
     let problem = |apk: &mut Apk, text: String| apk.problems.push(text);
 
     // the app, its version, a release build
@@ -168,10 +300,10 @@ pub fn check(bytes: &[u8], version: &str, home: &[String]) -> Result<Apk, String
     if manifest.package == APP_ID && manifest.version_name == version && manifest.version_code == Some(code) {
         apk.checked.push(format!("The app {APP_ID}, version {version} (code {code})"));
     } else if manifest.package == format!("{APP_ID}.debug") {
-        problem(&mut apk, "This is a test build (org.seedlock.app.debug, \"SeedLock test\"), not the release build.".into());
+        problem(apk, "This is a test build (org.seedlock.app.debug, \"SeedLock test\"), not the release build.".into());
     } else {
         problem(
-            &mut apk,
+            apk,
             format!(
                 "It is {} version {} (code {}), not {APP_ID} version {version} (code {code}): build it from this version's files.",
                 manifest.package,
@@ -182,15 +314,15 @@ pub fn check(bytes: &[u8], version: &str, home: &[String]) -> Result<Apk, String
     }
     match (manifest.debuggable, manifest.test_only) {
         (Some(false) | None, Some(false) | None) => apk.checked.push("A release build: it cannot be debugged".into()),
-        (Some(true), _) => problem(&mut apk, "It can be debugged (android:debuggable): build the release variant, not debug.".into()),
-        _ => problem(&mut apk, "It is a build for tests only (android:testOnly).".into()),
+        (Some(true), _) => problem(apk, "It can be debugged (android:debuggable): build the release variant, not debug.".into()),
+        _ => problem(apk, "It is a build for tests only (android:testOnly).".into()),
     }
     let permissions: BTreeSet<&str> = manifest.permissions.iter().map(String::as_str).collect();
     let allowed = BTreeSet::from(["android.permission.ACCESS_NETWORK_STATE", "android.permission.CAMERA"]);
     if permissions == allowed {
         apk.checked.push("Permissions: the camera and the network state only (no INTERNET)".into());
     } else {
-        problem(&mut apk, format!("It asks for other permissions than the camera and the network state: {permissions:?}"));
+        problem(apk, format!("It asks for other permissions than the camera and the network state: {permissions:?}"));
     }
 
     // its native libraries
@@ -206,7 +338,7 @@ pub fn check(bytes: &[u8], version: &str, home: &[String]) -> Result<Apk, String
     } else {
         let missing: Vec<&String> = wanted.difference(&found).collect();
         let extra: Vec<&String> = found.difference(&wanted).collect();
-        problem(&mut apk, format!("Native libraries: missing {missing:?}, not expected {extra:?} (did android/build-rust.sh run?)"));
+        problem(apk, format!("Native libraries: missing {missing:?}, not expected {extra:?} (did android/build-rust.sh run?)"));
     }
 
     // its code
@@ -229,14 +361,14 @@ pub fn check(bytes: &[u8], version: &str, home: &[String]) -> Result<Apk, String
         }
     }
     if classes == 0 {
-        problem(&mut apk, "It has no code (classes.dex).".into());
+        problem(apk, "It has no code (classes.dex).".into());
     } else if unexpected.is_empty() {
         // in the order the notices name them
         libraries.sort_by_key(|library| CODE.iter().position(|(_, l)| l == library));
         apk.checked.push(format!("Code ({classes} classes): {} only", libraries.join(", ")));
     } else {
         let first: Vec<&String> = unexpected.iter().take(10).collect();
-        problem(&mut apk, format!("Code from a library the license notices do not name, in {first:?}"));
+        problem(apk, format!("Code from a library the license notices do not name, in {first:?}"));
     }
 
     // its license notices
@@ -244,11 +376,11 @@ pub fn check(bytes: &[u8], version: &str, home: &[String]) -> Result<Apk, String
         Ok(text) if text.starts_with(notices::title(version).as_bytes()) => {
             apk.checked.push(format!("The license notices of SeedLock {version}"))
         }
-        Ok(_) => problem(&mut apk, "Its license notices are not this version's: run android/build-rust.sh, then build again.".into()),
-        Err(_) => problem(&mut apk, "It has no license notices (assets/notices.txt): run android/build-rust.sh, then build again.".into()),
+        Ok(_) => problem(apk, "Its license notices are not this version's: run android/build-rust.sh, then build again.".into()),
+        Err(_) => problem(apk, "It has no license notices (assets/notices.txt): run android/build-rust.sh, then build again.".into()),
     }
 
-    // no home folder inside
+    // no folder of the computer that built it inside (the home folder holds the user name)
     let mut holds = BTreeSet::new();
     for name in zip.names() {
         let data = zip.data(name)?;
@@ -259,27 +391,12 @@ pub fn check(bytes: &[u8], version: &str, home: &[String]) -> Result<Apk, String
         }
     }
     if holds.is_empty() {
-        apk.checked.push("The path of this computer's home folder (your user name) is nowhere in it".into());
+        apk.checked.push("No folder of this computer (with your user name) or of the build environment is in it".into());
     } else {
-        problem(&mut apk, format!("It contains the path of this computer's home folder, with your user name, in {holds:?}"));
+        problem(apk, format!("It contains the path of a folder of the computer that built it (which may hold your user name), in {holds:?}"));
     }
 
-    // its signature
-    match signing_certificate(bytes, zip.central_directory) {
-        Ok((certificate, scheme, signers)) => {
-            apk.certificate = fingerprint(&certificate);
-            apk.scheme = scheme;
-            apk.names = certificate_names(&certificate);
-            if signers != 1 {
-                problem(&mut apk, format!("It is signed by {signers} keys, not by one."));
-            }
-            if apk.names.iter().any(|n| n.contains("Android Debug")) {
-                problem(&mut apk, "It is signed with Android Studio's test key (Android Debug), not with SeedLock's own key.".into());
-            }
-        }
-        Err(e) => problem(&mut apk, e),
-    }
-    Ok(apk)
+    Ok(())
 }
 
 fn contains(haystack: &[u8], needle: &[u8]) -> bool {
@@ -336,12 +453,45 @@ struct Entry {
     offset: usize,
 }
 
-/// An APK as a ZIP archive: its entries, and where its central directory starts (the APK Signing Block
-/// ends right before it).
+/// An APK as a ZIP archive: its entries, where its central directory starts (the APK Signing Block ends
+/// right before it), and where its end record is.
 struct Zip<'a> {
     bytes: &'a [u8],
     entries: Vec<Entry>,
     central_directory: usize,
+    end_record: usize,
+}
+
+/// A signed APK without its signature: its bytes as they were before it was signed, and whether it was
+/// signed at all (an APK that is not is given back as it is). See the notes at the top of this file.
+pub fn without_signature(bytes: &[u8]) -> Result<(Vec<u8>, bool), String> {
+    let zip = Zip::read(bytes)?;
+    let files_end = zip.files_end()?;
+    let directory = zip.central_directory;
+    let block_start = if directory >= files_end + 32 && bytes[directory - 16..directory] == *b"APK Sig Block 42" {
+        let size = u64_at(bytes, directory - 24)? as usize;
+        let start = directory.checked_sub(size + 8).filter(|&s| s >= files_end).ok_or("the APK's signature block is damaged")?;
+        if u64_at(bytes, start)? as usize != size {
+            return Err("the APK's signature block is damaged".into());
+        }
+        start
+    } else {
+        directory
+    };
+    let padding = &bytes[files_end..block_start];
+    if block_start == directory && !padding.is_empty() {
+        return Err(format!("There are {} unknown bytes between the APK's files and its central directory.", padding.len()));
+    }
+    if padding.len() >= 4096 || padding.iter().any(|&b| b != 0) {
+        return Err("Something other than zeros comes before the APK's signature block.".into());
+    }
+    let removed = directory - files_end;
+    let mut unsigned = Vec::with_capacity(bytes.len() - removed);
+    unsigned.extend_from_slice(&bytes[..files_end]);
+    unsigned.extend_from_slice(&bytes[directory..]);
+    let offset = zip.end_record - removed + 16;
+    unsigned[offset..offset + 4].copy_from_slice(&(files_end as u32).to_le_bytes());
+    Ok((unsigned, block_start != directory))
 }
 
 fn u16_at(b: &[u8], at: usize) -> Result<u16, String> {
@@ -389,11 +539,37 @@ impl<'a> Zip<'a> {
             });
             at += 46 + skip;
         }
-        Ok(Zip { bytes, entries, central_directory: start })
+        if at != end {
+            return Err("The APK's central directory does not end where its end record starts.".into());
+        }
+        Ok(Zip { bytes, entries, central_directory: start, end_record: end })
     }
 
     fn names(&self) -> impl Iterator<Item = &str> {
         self.entries.iter().map(|e| e.name.as_str())
+    }
+
+    /// Where the last file's record ends (its header, name, extra field, data, and the data descriptor that
+    /// may follow it): what comes after it, up to the central directory, is the APK Signing Block.
+    fn files_end(&self) -> Result<usize, String> {
+        let mut end = 0;
+        for entry in &self.entries {
+            let at = entry.offset;
+            if u32_at(self.bytes, at)? != 0x0403_4b50 {
+                return Err(format!("{}: damaged ZIP entry", entry.name));
+            }
+            let flags = u16_at(self.bytes, at + 6)?;
+            let mut stop = at + 30 + u16_at(self.bytes, at + 26)? as usize + u16_at(self.bytes, at + 28)? as usize + entry.compressed;
+            if flags & 8 != 0 {
+                // a data descriptor: its signature (which may be left out), the CRC and the two sizes
+                stop += if u32_at(self.bytes, stop)? == 0x0807_4b50 { 16 } else { 12 };
+            }
+            end = end.max(stop);
+        }
+        if end > self.central_directory {
+            return Err("The APK's files overlap its central directory.".into());
+        }
+        Ok(end)
     }
 
     /// An entry's contents.
@@ -922,7 +1098,7 @@ pub mod tests {
         // the home folder's path inside a library
         let mut e = good();
         e[3].1 = b"\x7fELF ... /home/someone/.cargo/registry/src/x.rs".to_vec();
-        assert!(problems(&e).contains("home folder"), "{}", problems(&e));
+        assert!(problems(&e).contains("a folder of the computer that built it"), "{}", problems(&e));
         // Android Studio's test key; no v2/v3 signature at all
         let debug = checked(&good(), &certificate("Android Debug"));
         assert!(debug.problems.join(" ").contains("test key"), "{:?}", debug.problems);
@@ -930,6 +1106,111 @@ pub mod tests {
         assert!(unsigned.problems.join(" ").contains("not signed with APK Signature Scheme v2 or v3"), "{:?}", unsigned.problems);
         // not an APK at all
         assert!(check(b"hello", "0.2.1", &[]).is_err());
+    }
+
+    /// `apk` with `n` bytes of `fill` put between its files and its APK Signing Block (or its central directory),
+    /// and the end record changed to match: what apksigner does with zeros, to align the block.
+    fn padded(apk: &[u8], n: usize, fill: u8) -> Vec<u8> {
+        let zip = Zip::read(apk).unwrap();
+        let at = zip.files_end().unwrap();
+        let end_record = zip.end_record + n;
+        let mut out = [&apk[..at], &vec![fill; n][..], &apk[at..]].concat();
+        let directory = u32::from_le_bytes(out[end_record + 16..end_record + 20].try_into().unwrap()) as usize + n;
+        out[end_record + 16..end_record + 20].copy_from_slice(&(directory as u32).to_le_bytes());
+        out
+    }
+
+    #[test]
+    fn taking_the_signature_off_gives_back_the_apk_as_it_was_before_it_was_signed() {
+        let entries = release_entries("0.2.1", 201);
+        let cert = certificate("SeedLock releases");
+        let unsigned = apk(&entries, None);
+        for scheme in [V2, V3] {
+            let signed = apk(&entries, Some((scheme, &cert)));
+            assert!(signed.len() > unsigned.len());
+            assert_eq!(without_signature(&signed).unwrap(), (unsigned.clone(), true));
+            // the zeros apksigner puts before the block, so that it starts at a multiple of 4096 bytes
+            assert_eq!(without_signature(&padded(&signed, 72, 0)).unwrap(), (unsigned.clone(), true));
+            assert_eq!(without_signature(&padded(&signed, 4095, 0)).unwrap(), (unsigned.clone(), true));
+            // anything else there is not a signature's
+            assert!(without_signature(&padded(&signed, 72, 1)).unwrap_err().contains("other than zeros"));
+            assert!(without_signature(&padded(&signed, 4096, 0)).unwrap_err().contains("other than zeros"));
+        }
+        // an APK that is not signed comes back as it is; with something unknown before its directory, not at all
+        assert_eq!(without_signature(&unsigned).unwrap(), (unsigned.clone(), false));
+        assert!(without_signature(&padded(&unsigned, 8, 0)).unwrap_err().contains("8 unknown bytes"));
+        // what comes off is read the same way the signature check reads it, and the result is an APK again
+        let signed = apk(&entries, Some((V2, &cert)));
+        let (taken_off, _) = without_signature(&signed).unwrap();
+        assert!(check(&taken_off, "0.2.1", &[]).unwrap().problems.join(" ").contains("not signed"));
+        assert!(check(&signed, "0.2.1", &[]).unwrap().problems.is_empty());
+        // a damaged block size
+        let mut damaged = signed.clone();
+        let directory = Zip::read(&signed).unwrap().central_directory;
+        damaged[directory - 24] ^= 1;
+        assert!(without_signature(&damaged).unwrap_err().contains("damaged"));
+    }
+
+    #[test]
+    fn data_descriptors_and_a_comment_are_kept_in_place() {
+        // one stored file whose sizes follow its data (flag 8, a data descriptor with its signature), a ZIP comment
+        let data = b"hello, data descriptor";
+        let mut zip = Vec::new();
+        zip.extend(0x0403_4b50u32.to_le_bytes());
+        zip.extend([20, 0, 8, 0, 0, 0]); // version, flags (8: a data descriptor follows), method 0
+        zip.extend([0u8; 16]); // time, date, crc and sizes (they are in the descriptor)
+        zip.extend(1u16.to_le_bytes());
+        zip.extend(0u16.to_le_bytes());
+        zip.push(b'a');
+        zip.extend(data);
+        zip.extend(0x0807_4b50u32.to_le_bytes());
+        zip.extend([0u8; 4]);
+        zip.extend((data.len() as u32).to_le_bytes());
+        zip.extend((data.len() as u32).to_le_bytes());
+        let files_end = zip.len();
+        let mut directory = Vec::new();
+        directory.extend(0x0201_4b50u32.to_le_bytes());
+        directory.extend([20, 0, 20, 0, 8, 0, 0, 0]);
+        directory.extend([0u8; 8]);
+        directory.extend((data.len() as u32).to_le_bytes());
+        directory.extend((data.len() as u32).to_le_bytes());
+        directory.extend(1u16.to_le_bytes());
+        directory.extend([0u8; 12]);
+        directory.extend(0u32.to_le_bytes());
+        directory.push(b'a');
+        let end = |directory_at: usize, directory: &[u8]| -> Vec<u8> {
+            let mut e = 0x0605_4b50u32.to_le_bytes().to_vec();
+            e.extend([0, 0, 0, 0, 1, 0, 1, 0]);
+            e.extend((directory.len() as u32).to_le_bytes());
+            e.extend((directory_at as u32).to_le_bytes());
+            e.extend(5u16.to_le_bytes());
+            e.extend(b"hello");
+            e
+        };
+        let unsigned = [&zip[..], &directory[..], &end(files_end, &directory)[..]].concat();
+        assert_eq!(Zip::read(&unsigned).unwrap().files_end().unwrap(), files_end);
+        // the same with a signing block (a stand-in one) between the file and the directory
+        let pair = [16u64.to_le_bytes().to_vec(), V2.to_le_bytes().to_vec(), vec![7u8; 12]].concat();
+        let size = (pair.len() + 24) as u64;
+        let block = [size.to_le_bytes().to_vec(), pair, size.to_le_bytes().to_vec(), b"APK Sig Block 42".to_vec()].concat();
+        let signed = [&zip[..], &block[..], &directory[..], &end(files_end + block.len(), &directory)[..]].concat();
+        assert_eq!(without_signature(&signed).unwrap(), (unsigned, true));
+    }
+
+    #[test]
+    fn the_app_before_it_is_signed_is_checked_for_the_environments_folders_too() {
+        let mut entries = release_entries("0.2.1", 201);
+        let mut apk_found = Apk::default();
+        check_contents(&Zip::read(&apk(&entries, None)).unwrap(), "0.2.1", &forbidden_folders(), &mut apk_found).unwrap();
+        assert!(apk_found.problems.is_empty(), "{:?}", apk_found.problems);
+        assert_eq!(apk_found.checked.len(), 7);
+        // the app's own packages (org/seedlock/...) are no folder of the environment
+        assert!(ENVIRONMENT_FOLDERS.iter().all(|f| !"Lorg/seedlock/app/MainActivity;Lorg/seedlock/ffi/X;".contains(f)));
+        entries[4].1 = b"\x7fELF ... /seedlock/target/aarch64-linux-android/phone/build/x.rs".to_vec();
+        let mut apk_found = Apk::default();
+        check_contents(&Zip::read(&apk(&entries, None)).unwrap(), "0.2.1", &forbidden_folders(), &mut apk_found).unwrap();
+        assert!(apk_found.problems.join(" ").contains("a folder of the computer that built it"), "{:?}", apk_found.problems);
+        assert_eq!(unsigned_name("0.3.2"), "seedlock-0.3.2-android-unsigned.apk");
     }
 
     #[test]
