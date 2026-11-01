@@ -348,53 +348,90 @@ class MainActivity : Activity() {
     /** The copied secret's screen is closing: leaving SeedLock closes everything again, and the clipboard is emptied. */
     fun endCopy() {
         keepOpenUntil = 0L
-        if (hasWindowFocus()) emptyClipboard() else leftWithCopy = true
+        if (inFocus()) emptyClipboard() else leftWithCopy = true
     }
 
     /** Empties the clipboard if it still holds what [copySecret] put there (it can be read while SeedLock has the focus). */
     private fun emptyClipboard() {
         val label = copiedLabel ?: return
-        val manager = clipboard()
         val stillOurs = try {
-            manager.primaryClipDescription?.label?.toString() == label
+            clipboard().primaryClipDescription?.label?.toString() == label
         } catch (e: Exception) {
             false
         }
-        if (stillOurs) {
-            if (Build.VERSION.SDK_INT >= 28) manager.clearPrimaryClip() else manager.setPrimaryClip(ClipData.newPlainText("", ""))
-        }
+        if (stillOurs) clearClipboard()
         copiedLabel = null
     }
 
     /**
      * A password or seed words were just pasted into one of SeedLock's fields (see `secretField`): the clipboard
-     * most likely holds them, copied from a password manager, so it is emptied at once, and SeedLock says so.
+     * most likely holds them, copied from a password manager. SeedLock empties it right after the paste, checks a
+     * moment later that it is empty, empties it again if not, and says what it found.
      */
     fun pastedSecret() {
-        val manager = clipboard()
-        val holdsSomething = try {
-            when {
-                !manager.hasPrimaryClip() -> false
-                Build.VERSION.SDK_INT >= 28 -> true
-                // up to Android 8.1, SeedLock empties the clipboard by putting an empty text on it
-                else -> !manager.primaryClip?.getItemAt(0)?.text.isNullOrEmpty()
-            }
-        } catch (e: Exception) {
-            true
-        }
-        if (!holdsSomething) return // typed, not pasted (or emptied already)
-        clearClipboard()
-        // what SeedLock itself had put there is gone with it: nothing left to empty later
+        if (!clipboardHolds()) return // typed, not pasted (or emptied already)
+        // what SeedLock itself had put there goes with it: nothing left to empty later
         copiedLabel = null
         awayDuringPrompt = false
-        Toast.makeText(this, "Pasted. SeedLock emptied the clipboard.", Toast.LENGTH_SHORT).show()
+        // once the paste is over (this is called in its middle)
+        clock.post { clearClipboard() }
+        clock.postDelayed({ checkEmptied(1) }, CLIPBOARD_CHECK_MS)
     }
 
-    /** Empties the clipboard, whatever it holds (writing to it needs no focus, unlike reading it). */
+    /**
+     * Whether the clipboard holds something other than the empty text SeedLock puts there ([clearClipboard]). Only
+     * the description of what is there is read (Android lets the app that has the focus read it), never the text.
+     */
+    private fun clipboardHolds(): Boolean = try {
+        val manager = clipboard()
+        manager.hasPrimaryClip() && manager.primaryClipDescription?.label?.toString() != EMPTIED_LABEL
+    } catch (e: Exception) {
+        true
+    }
+
+    /**
+     * Whether one of SeedLock's windows has the focus: the screen, or a dialog over it (the prompt for a backup's
+     * password, for example, during which the screen itself has no focus). Only then can SeedLock read the clipboard.
+     */
+    private fun inFocus(): Boolean = hasWindowFocus() || dialogs.any { it.window?.decorView?.hasWindowFocus() == true }
+
+    /** A moment after a paste: the clipboard must be empty now. If it is not, SeedLock empties it again, or says it cannot. */
+    private fun checkEmptied(attempt: Int) {
+        if (!inFocus()) {
+            // left meanwhile (the clipboard can be read only with the focus): empty it once more, without checking
+            clearClipboard()
+            return
+        }
+        when {
+            !clipboardHolds() -> Toast.makeText(this, "Pasted. SeedLock emptied the clipboard.", Toast.LENGTH_SHORT).show()
+            attempt < CLIPBOARD_TRIES -> {
+                clearClipboard()
+                clock.postDelayed({ checkEmptied(attempt + 1) }, CLIPBOARD_CHECK_MS)
+            }
+            else -> Toast.makeText(
+                this,
+                "This phone keeps the password on the clipboard: SeedLock could not empty it. Empty it in your " +
+                    "password manager (in Bitwarden: Settings > Other > Clear clipboard) or in your keyboard's clipboard.",
+                Toast.LENGTH_LONG,
+            ).show()
+        }
+    }
+
+    /**
+     * Empties the clipboard, whatever it holds: first an empty text takes the place of what is there, then the
+     * clipboard is cleared, the way Bitwarden empties it. On two phones, clearing it only (0.3.2's first version)
+     * left the password there. Writing to the clipboard needs no focus, unlike reading it.
+     */
     private fun clearClipboard() {
         try {
             val manager = clipboard()
-            if (Build.VERSION.SDK_INT >= 28) manager.clearPrimaryClip() else manager.setPrimaryClip(ClipData.newPlainText("", ""))
+            val empty = ClipData.newPlainText(EMPTIED_LABEL, "")
+            if (Build.VERSION.SDK_INT >= 24) {
+                // ClipDescription.EXTRA_IS_SENSITIVE: no preview of it, and keyboards keep it out of their history
+                empty.description.extras = PersistableBundle().apply { putBoolean("android.content.extra.IS_SENSITIVE", true) }
+            }
+            manager.setPrimaryClip(empty)
+            if (Build.VERSION.SDK_INT >= 28) manager.clearPrimaryClip()
         } catch (e: Exception) {
             // the password manager's own setting can still empty it
         }
@@ -557,5 +594,12 @@ class MainActivity : Activity() {
 
         /** How often the phone's network is checked while SeedLock is in use. */
         const val WATCH_MS = 1_000L
+
+        /** The label of the empty text that SeedLock puts on the clipboard to take a secret off it. */
+        const val EMPTIED_LABEL = "SeedLock emptied the clipboard"
+
+        /** How long after emptying the clipboard SeedLock checks that it stayed empty, and how often it tries. */
+        const val CLIPBOARD_CHECK_MS = 700L
+        const val CLIPBOARD_TRIES = 3
     }
 }
