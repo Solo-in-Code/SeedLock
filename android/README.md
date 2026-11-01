@@ -197,8 +197,11 @@ then. Until the phone is offline, its first screen shows only a message (it chec
 2. **Check the backup**: its password opens it, and **Compare** says MATCH for the words on paper. With
    the password in a password manager on this phone: copy it there and come back to SeedLock within 5
    minutes to paste it (the prompt waits that long). Right after the paste, SeedLock empties the
-   clipboard and says so ("Pasted. SeedLock emptied the clipboard."); it empties it again when the
-   prompt closes.
+   clipboard, checks a moment later that it stayed empty, and says so ("Pasted. SeedLock emptied the
+   clipboard."); if the phone keeps the password there anyway, it says that instead. It empties it
+   again when the prompt closes. A keyboard with a clipboard history of its own (Gboard's
+   **Clipboard**, for example) keeps a copy that no other app can reach: turn that history off on the
+   phone you use SeedLock on.
 3. **Wallet for Sparrow**: in Sparrow on the online computer, **File > Import Wallet > Output Descriptor >
    Scan...** and hold the phone's screen to the camera. Sparrow must show the same fingerprint and the
    same first addresses as the phone. Sparrow names the wallet's keystore after the backup (its first
