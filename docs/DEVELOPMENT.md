@@ -179,15 +179,21 @@ still there; a password or seed words pasted into one of its fields (several cha
 one at a time) are taken off the clipboard right after the paste, and a moment later SeedLock checks that the
 clipboard is empty and says what it found (`secretField`, `MainActivity.pastedSecret`: as Bitwarden does, an empty
 text first takes the place of what is there, then the clipboard is cleared; on two phones, 0.3.2's first version,
-which only cleared it, left the password there); its text fields allow no keyboard learning or autofill; its files are
-left out of Android's cloud backup and of the copy to a new phone; and leaving the app closes every screen but the
-first and every dialog, and with them any open seed (work that ends meanwhile, such as opening a backup, shows
-nothing). Two exceptions, each for at most 5 minutes, are for a password manager on the same phone: after **Copy it**,
-the new seed's screen stays open while the password is pasted into the password manager; and while SeedLock asks for a
+which only cleared it, left the password there), though a keyboard with a clipboard of its own keeps a copy of what is
+copied, which no app can delete (on the Xiaomi Mi 8 with Gboard and on a Samsung phone with Samsung's keyboard, the
+password could still be pasted in another app afterwards); so a password manager on the phone may fill in a backup's
+password instead (autofill, `allowAutofill`), and then it never goes through the clipboard; its text fields allow no
+keyboard learning, and no autofill but in that one field, whose prompt ends the autofill session as it closes
+(`endAutofill`), so that nothing typed in SeedLock is offered to the password manager to save; its files are left out
+of Android's cloud backup and of the copy to a new phone; and leaving the app closes every screen but the first and
+every dialog, and with them any open seed (work that ends meanwhile, such as opening a backup, shows nothing). Two
+exceptions, each for at most 5 minutes, are for a password manager on the same phone: after **Copy it**, the new
+seed's screen stays open while the password is pasted into the password manager; and while SeedLock asks for a
 backup's password, when no seed is open yet (only the first screen and a backup's or a multisig wallet's screen are
-under the prompt), the prompt stays while the password is copied from the password manager, and when the prompt
-closes, SeedLock empties the clipboard. `tools/audit-offline.sh` checks the library, the permissions, the app's
-libraries and its Kotlin code (see [the audit](#supply-chain-and-the-offline-audit)).
+under the prompt), the prompt stays while the password is copied from the password manager (or while the password
+manager opens to fill it in), and when the prompt closes, SeedLock empties the clipboard. `tools/audit-offline.sh`
+checks the library, the permissions, the app's libraries and its Kotlin code (see [the
+audit](#supply-chain-and-the-offline-audit)).
 
 Two more things to know about the app:
 
@@ -954,7 +960,10 @@ By SeedLock's users:
 * **Version 0.3.2, the phone app built reproducibly:** `tools/build-release.sh` built it in the fixed build environment
   together with the programs, and built them again to the same SHA-256; `tools/sign-apk.sh` signed it with SeedLock's
   Android key, and `check-apk` found it byte for byte that build with its signature added; it installed over the
-  earlier app, with the backups kept, on two phones.
+  earlier app, with the backups kept, on two phones. And what keyboards keep: on the Xiaomi Mi 8 with Gboard,
+  SeedLock emptied the clipboard after the paste (its message said so), yet for about 16 seconds the password could
+  still be pasted in another app, and from Gboard's own clipboard; on a Samsung phone with Samsung's keyboard, it
+  could still be pasted too. Hence autofill for a backup's password.
 * Also confirmed: reading a backup from its QR code; the online warning on Linux; and multisig with Sparrow (2 of 3,
   native SegWit): the keys typed in or scanned by Sparrow's xpub button, the wallet's descriptor from a file, from an
   animated UR code and from static BBQr codes at two densities (in good light), and its transactions signed by one
@@ -979,9 +988,8 @@ You should know these:
    [The phone app, checked on a computer](#the-phone-app-checked-on-a-computer).
 7. The reproducible build: the programs' build with Docker Desktop on a Mac or on Windows (`build-release.ps1`), and
    the Mac program on a Mac with an Intel chip.
-8. New in 0.3.2: the clipboard emptied right after a password is pasted into the app, the way Bitwarden empties it
-   (an empty text first, then cleared). The first way, clearing only, did not work on two phones: the password could
-   still be pasted in another app.
+8. New in 0.3.2: a backup's password filled in by a password manager on the phone (autofill, with Bitwarden), and
+   nothing offered to the password manager to save afterwards.
 
 Menu 9 and `seedlock camera` let anyone check their own camera setup.
 
