@@ -1,5 +1,6 @@
 # What the fixed build environment (tools/reproducible/Dockerfile) leaves out when it copies SeedLock's folder in:
-# what builds make, and anything private that may be in the folder. Only the source code is needed.
+# what builds make, and anything private that may be in the folder. Only the source code is needed, and a release's
+# phone app put into the folder to compare it with the app built here (the last line).
 target
 dist
 vendor
@@ -27,3 +28,4 @@ android/app/src/main/assets
 **/*.pyc
 node_modules
 .git
+!seedlock-*-android.apk
