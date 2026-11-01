@@ -175,17 +175,19 @@ seed, lets go of what it waited for, and takes a password it copied off the clip
 its screens and its dialogs cannot be captured or recorded (`FLAG_SECURE` on each window); a seed's words cannot be
 selected or copied, and a new password reaches the clipboard only when **Copy it** is tapped (for a password manager
 on the same phone), marked as sensitive, and SeedLock empties the clipboard when it is back in front if its copy is
-still there; a password or seed words pasted into one of its fields (several characters at once, where a keyboard
-adds one at a time) are taken off the clipboard right after the paste (`secretField`, `MainActivity.pastedSecret`);
-its text fields allow no keyboard learning or autofill; its files are left out of Android's cloud backup
-and of the copy to a new phone; and leaving the app closes every screen but the first and every dialog, and with them
-any open seed (work that ends meanwhile, such as opening a backup, shows nothing). Two exceptions, each for at most 5
-minutes, are for a password manager on the same phone: after **Copy it**, the new seed's screen stays open while the
-password is pasted into the password manager; and while SeedLock asks for a backup's password, when no seed is open
-yet (only the first screen and a backup's or a multisig wallet's screen are under the prompt), the prompt stays while
-the password is copied from the password manager, and when the prompt closes, SeedLock empties the clipboard.
-`tools/audit-offline.sh` checks the library, the permissions, the app's libraries and its Kotlin code (see [the
-audit](#supply-chain-and-the-offline-audit)).
+still there; a password or seed words pasted into one of its fields (several characters at once, where a keyboard adds
+one at a time) are taken off the clipboard right after the paste, and a moment later SeedLock checks that the
+clipboard is empty and says what it found (`secretField`, `MainActivity.pastedSecret`: as Bitwarden does, an empty
+text first takes the place of what is there, then the clipboard is cleared; on two phones, 0.3.2's first version,
+which only cleared it, left the password there); its text fields allow no keyboard learning or autofill; its files are
+left out of Android's cloud backup and of the copy to a new phone; and leaving the app closes every screen but the
+first and every dialog, and with them any open seed (work that ends meanwhile, such as opening a backup, shows
+nothing). Two exceptions, each for at most 5 minutes, are for a password manager on the same phone: after **Copy it**,
+the new seed's screen stays open while the password is pasted into the password manager; and while SeedLock asks for a
+backup's password, when no seed is open yet (only the first screen and a backup's or a multisig wallet's screen are
+under the prompt), the prompt stays while the password is copied from the password manager, and when the prompt
+closes, SeedLock empties the clipboard. `tools/audit-offline.sh` checks the library, the permissions, the app's
+libraries and its Kotlin code (see [the audit](#supply-chain-and-the-offline-audit)).
 
 Two more things to know about the app:
 
@@ -949,6 +951,10 @@ By SeedLock's users:
   On real computers, offline: the Linux program; the Windows program, made with the MinGW tools; and the Mac program,
   linked by zig, on a Mac with an Apple chip. They start, show the version, open a backup and sign; and the phone app
   was built and installed over the earlier one as before.
+* **Version 0.3.2, the phone app built reproducibly:** `tools/build-release.sh` built it in the fixed build environment
+  together with the programs, and built them again to the same SHA-256; `tools/sign-apk.sh` signed it with SeedLock's
+  Android key, and `check-apk` found it byte for byte that build with its signature added; it installed over the
+  earlier app, with the backups kept, on two phones.
 * Also confirmed: reading a backup from its QR code; the online warning on Linux; and multisig with Sparrow (2 of 3,
   native SegWit): the keys typed in or scanned by Sparrow's xpub button, the wallet's descriptor from a file, from an
   animated UR code and from static BBQr codes at two densities (in good light), and its transactions signed by one
@@ -973,9 +979,9 @@ You should know these:
    [The phone app, checked on a computer](#the-phone-app-checked-on-a-computer).
 7. The reproducible build: the programs' build with Docker Desktop on a Mac or on Windows (`build-release.ps1`), and
    the Mac program on a Mac with an Intel chip.
-8. New in 0.3.2: the phone app built in the fixed build environment (its Android tools, its build twice to the same
-   app), signed with `tools/sign-apk.sh`, and installed over the earlier app with the backups kept; and the clipboard
-   emptied right after a password is pasted into the app.
+8. New in 0.3.2: the clipboard emptied right after a password is pasted into the app, the way Bitwarden empties it
+   (an empty text first, then cleared). The first way, clearing only, did not work on two phones: the password could
+   still be pasted in another app.
 
 Menu 9 and `seedlock camera` let anyone check their own camera setup.
 
