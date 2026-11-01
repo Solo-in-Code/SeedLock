@@ -22,8 +22,10 @@ What makes it safe to use on a phone:
   memory that is wiped when it is no longer needed. Leaving the app (the home button, another app, the
   screen switching off) closes the open backup.
 * **No screenshots** and no screen recording of SeedLock, no picture of it in the list of recent apps,
-  no keyboard learning or autofill in its fields, no copy of its files in Google's cloud backup or on a
-  new phone. A seed's words and a new password cannot be copied, so they never reach the clipboard.
+  no keyboard learning in its fields, no copy of its files in Google's cloud backup or on a new phone. No
+  autofill either, except for a backup's password: a password manager on the phone may fill that in (see
+  2 below), and SeedLock offers it nothing to save. A seed's words cannot be copied, and a new password
+  goes on the clipboard only when you tap **Copy it** (see 5 below).
 * **The backups on the phone are the same encrypted files** as on the computer, in the app's own storage,
   which other apps cannot read. Once a backup was opened on the phone, SeedLock also keeps its wallet's
   fingerprint there, to show it beside the backup's name; nothing about a BIP39 passphrase is ever kept.
@@ -195,13 +197,18 @@ then. Until the phone is offline, its first screen shows only a message (it chec
    **Open its file**: then its file name is offered as the backup's name. (The QR codes of SeedLock 0.2.0
    and newer carry the backup's name, on the computer and on the phone, see 8; older ones do not.)
 2. **Check the backup**: its password opens it, and **Compare** says MATCH for the words on paper. With
-   the password in a password manager on this phone: copy it there and come back to SeedLock within 5
-   minutes to paste it (the prompt waits that long). Right after the paste, SeedLock empties the
-   clipboard, checks a moment later that it stayed empty, and says so ("Pasted. SeedLock emptied the
-   clipboard."); if the phone keeps the password there anyway, it says that instead. It empties it
-   again when the prompt closes. A keyboard with a clipboard history of its own (Gboard's
-   **Clipboard**, for example) keeps a copy that no other app can reach: turn that history off on the
-   phone you use SeedLock on.
+   the password in a password manager on this phone, let the password manager fill it in (autofill): then
+   the password never goes through the clipboard. In Bitwarden: **Settings > Autofill > Autofill
+   services** on (Android asks you to choose Bitwarden); then open the entry with the backup's password,
+   tap **Edit**, and under **Autofill Options** add the website (URI) `androidapp://org.seedlock.app` (for
+   SeedLock test: `androidapp://org.seedlock.app.debug`). In SeedLock's password window, tap the password
+   field and choose that entry. Copy and paste works too: copy the password in the password manager and
+   come back to SeedLock within 5 minutes to paste it (the prompt waits that long). Right after the paste,
+   SeedLock empties the clipboard, checks a moment later that it stayed empty, and says what it found. But
+   a keyboard with a clipboard of its own keeps a copy that no app can delete: on a Xiaomi Mi 8 with
+   Gboard and on a Samsung phone with Samsung's keyboard, the password could still be pasted in another
+   app after SeedLock had emptied the clipboard. So use autofill, or turn the keyboard's clipboard off (in
+   Gboard: **Settings > Clipboard**).
 3. **Wallet for Sparrow**: in Sparrow on the online computer, **File > Import Wallet > Output Descriptor >
    Scan...** and hold the phone's screen to the camera. Sparrow must show the same fingerprint and the
    same first addresses as the phone. Sparrow names the wallet's keystore after the backup (its first
@@ -218,7 +225,8 @@ then. Until the phone is offline, its first screen shows only a message (it chec
    With a password manager on this phone, **Copy it** copies the generated password: paste it there,
    save it, copy it back and come back to SeedLock within 5 minutes (it stays open meanwhile) to paste it
    in: right after the paste, SeedLock empties the clipboard. Coming back without pasting, SeedLock empties
-   it if its own copy of the password is still on it.
+   it if its own copy of the password is still on it. A keyboard with a clipboard of its own keeps a copy
+   anyway (see 2): turn it off, or type the password into the password manager by hand.
 6. **Leave the app** in the middle of something (home button): coming back, SeedLock is on its first
    screen again. A screenshot of SeedLock shows nothing.
 7. **Its permissions:** in **Settings > Apps > SeedLock** (or **SeedLock test**) **> Permissions**, the
