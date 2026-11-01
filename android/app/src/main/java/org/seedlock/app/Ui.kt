@@ -16,6 +16,7 @@ import android.util.TypedValue
 import android.view.View
 import android.view.ViewGroup
 import android.view.WindowManager
+import android.view.autofill.AutofillManager
 import android.widget.Button
 import android.widget.CheckBox
 import android.widget.EditText
@@ -149,15 +150,21 @@ fun secretField(context: Context, hint: String, kind: FieldKind): EditText = Edi
 /**
  * A password (or seed words) pasted into [field], copied from a password manager for example, does not stay on the
  * clipboard: right after the paste, SeedLock empties it, so that no other app finds the secret there. A paste puts
- * several characters into the field at once; a keyboard adds one at a time (these fields offer no suggestions and
- * no autofill).
+ * several characters into the field at once; a keyboard adds one at a time (these fields offer no suggestions). A
+ * password manager that fills in a backup's password ([allowAutofill]) also puts it there at once, but without the
+ * clipboard, which then stays as it is: the field counts as filled in once the autofill is over.
  */
 private fun emptiesClipboardOnPaste(field: EditText) {
     field.addTextChangedListener(object : TextWatcher {
         override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
 
         override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {
-            if (count >= 2) (field.context as? MainActivity)?.pastedSecret()
+            if (count >= 2) {
+                field.post {
+                    val filledIn = Build.VERSION.SDK_INT >= 26 && field.isAutofilled
+                    if (!filledIn) (field.context as? MainActivity)?.pastedSecret()
+                }
+            }
         }
 
         override fun afterTextChanged(s: Editable?) {}
@@ -170,6 +177,31 @@ fun noAutofill(view: View) {
         try {
             View::class.java.getMethod("setImportantForAutofill", Int::class.javaPrimitiveType)
                 .invoke(view, IMPORTANT_FOR_AUTOFILL_NO_EXCLUDE_DESCENDANTS)
+        } catch (e: Exception) {
+            // an Android without autofill
+        }
+    }
+}
+
+/**
+ * The one exception to [noAutofill]: the password manager chosen in Android's settings (Bitwarden, for example) may
+ * fill in a backup's password, so that the password never goes through the clipboard: keyboards such as Gboard and
+ * Samsung's keep their own copy of what is copied, which no app can delete. Only the password is filled in this way,
+ * and the prompt it is in ends the password manager's session when it closes ([endAutofill]), so that nothing typed in
+ * SeedLock is ever offered to the password manager to save.
+ */
+fun allowAutofill(field: EditText) {
+    if (Build.VERSION.SDK_INT >= 26) {
+        field.importantForAutofill = View.IMPORTANT_FOR_AUTOFILL_YES
+        field.setAutofillHints(View.AUTOFILL_HINT_PASSWORD)
+    }
+}
+
+/** Ends the password manager's autofill session in SeedLock, without its offer to save what was typed. */
+fun endAutofill(context: Context) {
+    if (Build.VERSION.SDK_INT >= 26) {
+        try {
+            context.getSystemService(AutofillManager::class.java)?.cancel()
         } catch (e: Exception) {
             // an Android without autofill
         }
