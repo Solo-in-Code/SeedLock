@@ -9,6 +9,8 @@ wallet (for example 2 of 3), as the computer's menu 10 does.
 
 **This is a preview.** Try it with a test wallet (testnet) or a small amount first. From version 0.2.1
 on, every release has the app ready-made, signed with SeedLock's own key; you can also build it yourself.
+From version 0.3.2 on, it is built reproducibly: anyone can check that the release's app is exactly what
+its source code makes, with SeedLock's signature added and nothing else.
 
 What makes it safe to use on a phone:
 
@@ -31,16 +33,16 @@ What makes it safe to use on a phone:
 On the online computer:
 
 1. **Download it.** On SeedLock's GitHub page, click **Releases** on the right. Under the newest release,
-   in its **Assets**, download `seedlock-0.3.1-android.apk` (the version may be newer) and
+   in its **Assets**, download `seedlock-0.3.2-android.apk` (the version may be newer) and
    `SHA256SUMS.txt`.
 2. **Check it,** as for the computer programs (the main README, Part 1, Way A, step 2). Open a terminal
    in the folder it was downloaded to and type the line for your computer:
 
    | Computer | Command |
    |---|---|
-   | Windows | `(Get-FileHash seedlock-0.3.1-android.apk).Hash` |
-   | Mac | `shasum -a 256 seedlock-0.3.1-android.apk` |
-   | Linux | `sha256sum seedlock-0.3.1-android.apk` |
+   | Windows | `(Get-FileHash seedlock-0.3.2-android.apk).Hash` |
+   | Mac | `shasum -a 256 seedlock-0.3.2-android.apk` |
+   | Linux | `sha256sum seedlock-0.3.2-android.apk` |
 
    The long number it shows must be exactly the one next to the file's name in `SHA256SUMS.txt`. If it is
    not, delete the file. To check that list's signature too, see the guide:
@@ -61,6 +63,12 @@ The SHA-256 fingerprint of that key's certificate is:
 ```
 
 (Android's `apksigner verify --print-certs` shows it too, in small letters and without the colons.)
+
+**Built from its source code.** From version 0.3.2 on, you (or anyone you trust) can also build the app
+again in SeedLock's fixed build environment and compare it with the release's: put the release's
+`seedlock-X.Y.Z-android.apk` and `SHA256SUMS.txt` into its unpacked **Source code (zip)** and run
+`sh tools/build-release.sh SHA256SUMS.txt` (it needs Docker or Podman):
+[DEVELOPMENT.md, Checking a release yourself](../docs/DEVELOPMENT.md#checking-a-release-yourself).
 
 **If you built SeedLock yourself before version 0.2.1,** that app is also called SeedLock, but it is
 signed with your computer's test key, so Android does not let the ready-made app replace it. Move to the
@@ -94,8 +102,9 @@ you use.
 3. **Android Studio**, free, from [developer.android.com/studio](https://developer.android.com/studio).
    Install it and start it once; it downloads the Android SDK (several GB).
 4. **The Android NDK**, inside Android Studio: on its welcome screen click **More Actions > SDK Manager**
-   (or, with a project open, **Tools > SDK Manager**), open the tab **SDK Tools**, tick **NDK (Side by
-   side)** and click **OK**.
+   (or, with a project open, **Tools > SDK Manager**), open the tab **SDK Tools**, tick **Show Package
+   Details** at the bottom right, then, under **NDK (Side by side)**, tick **28.2.13676358** (the NDK of
+   SeedLock's fixed build environment, which the app asks for) and click **OK**.
 
 ### Each time
 
@@ -114,13 +123,15 @@ you use.
 2. **Open the folder `android` in Android Studio** (**File > Open**, then choose the `android` folder
    inside SeedLock's folder, not SeedLock's folder itself). The first time, Android Studio downloads
    Gradle and Android's build tools ("Gradle sync"), which takes a few minutes. If it says that an SDK
-   platform is missing, click the link it shows to install it.
+   platform, the build tools 34.0.0 or the NDK 28.2.13676358 are missing, click the link it shows to
+   install them.
 
 3. **Build the app:** **Build > Generate Bundle(s) / APK(s) > Generate APK(s)** (in older versions of
    Android Studio: **Build > Build Bundle(s) / APK(s) > Build APK(s)**). When it is done, a message links
    to the file: the app is `app-debug.apk`, in `android/app/build/outputs/apk/debug`. It is the only
    file to install (the project builds no separate test app). The ready-made app of a release is built
-   differently, signed with SeedLock's own key: `docs/DEVELOPMENT.md`, Making a release.
+   in SeedLock's fixed build environment instead, and signed with SeedLock's own key:
+   `docs/DEVELOPMENT.md`, Making a release.
 
    A warning that the INTERNET permission "was tagged ... to remove other declarations but no other
    declaration present" is expected: it says that no library asked for the internet, so there was nothing
@@ -185,8 +196,9 @@ then. Until the phone is offline, its first screen shows only a message (it chec
    and newer carry the backup's name, on the computer and on the phone, see 8; older ones do not.)
 2. **Check the backup**: its password opens it, and **Compare** says MATCH for the words on paper. With
    the password in a password manager on this phone: copy it there and come back to SeedLock within 5
-   minutes to paste it (the prompt waits that long); when the prompt closes, SeedLock empties the
-   clipboard.
+   minutes to paste it (the prompt waits that long). Right after the paste, SeedLock empties the
+   clipboard and says so ("Pasted. SeedLock emptied the clipboard."); it empties it again when the
+   prompt closes.
 3. **Wallet for Sparrow**: in Sparrow on the online computer, **File > Import Wallet > Output Descriptor >
    Scan...** and hold the phone's screen to the camera. Sparrow must show the same fingerprint and the
    same first addresses as the phone. Sparrow names the wallet's keystore after the backup (its first
@@ -202,7 +214,8 @@ then. Until the phone is offline, its first screen shows only a message (it chec
    a QR code): SeedLock on the computer must open it with the same password and show the same fingerprint.
    With a password manager on this phone, **Copy it** copies the generated password: paste it there,
    save it, copy it back and come back to SeedLock within 5 minutes (it stays open meanwhile) to paste it
-   in. Coming back, SeedLock empties the clipboard if its own copy of the password is still on it.
+   in: right after the paste, SeedLock empties the clipboard. Coming back without pasting, SeedLock empties
+   it if its own copy of the password is still on it.
 6. **Leave the app** in the middle of something (home button): coming back, SeedLock is on its first
    screen again. A screenshot of SeedLock shows nothing.
 7. **Its permissions:** in **Settings > Apps > SeedLock** (or **SeedLock test**) **> Permissions**, the
@@ -276,5 +289,6 @@ model, and the Android version from **Settings > About phone**).
   a 2-of-3 multisig payment signed by two of its cosigners.
 * `crates/seedlock-tools` is a helper for the computer that builds the app, never part of it:
   `build-rust.sh` runs it to write the license notices the app shows (`app/src/main/assets/notices.txt`,
-  not kept in git), and it checks a release APK before it is published (`docs/DEVELOPMENT.md`, Making a
-  release).
+  not kept in git), it checks the app that SeedLock's fixed build environment makes (`tools/reproducible`),
+  and it checks a release APK before it is published: that it is that app with SeedLock's signature added
+  and nothing else (`docs/DEVELOPMENT.md`, Making a release).

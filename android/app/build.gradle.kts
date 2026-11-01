@@ -16,6 +16,10 @@ val versionParts: List<Int> = seedlockVersion.split('.').map { it.toInt() }
 android {
     namespace = "org.seedlock.app"
     compileSdk = 35
+    // The versions of the build tools and the NDK (whose llvm-strip Android's build runs over the native libraries)
+    // that the fixed build environment holds (tools/reproducible/Dockerfile), so that a build here uses the same.
+    buildToolsVersion = "34.0.0"
+    ndkVersion = "28.2.13676358"
 
     defaultConfig {
         applicationId = "org.seedlock.app"
@@ -41,14 +45,24 @@ android {
             versionNameSuffix = "-test"
             manifestPlaceholders["appLabel"] = "SeedLock test"
         }
-        // The release: signed with SeedLock's own key (Build > Generate Signed App Bundle or APK) and checked
-        // with seedlock-tools check-apk (docs/DEVELOPMENT.md, Making a release).
+        // The release: built in the fixed build environment (tools/build-release.sh), signed with SeedLock's own key
+        // (tools/sign-apk.sh) and checked with seedlock-tools check-apk (docs/DEVELOPMENT.md, Making a release).
         release {
             // no shrinking or renaming: the app stays exactly as its source reads
             isMinifyEnabled = false
             // never a release that can be debugged (Android's default for a release, said here on purpose)
             isDebuggable = false
+            // nothing about the folder it was built in (whether it is a git checkout, and which commit), so that the
+            // app comes out the same from the release's Source code (zip) and from a git checkout
+            vcsInfo.include = false
         }
+    }
+
+    // No list of the libraries the app is built from in its signature block (only Google Play reads it, and the
+    // app is not on Google Play): the release's app is the fixed environment's build with nothing but a signature.
+    dependenciesInfo {
+        includeInApk = false
+        includeInBundle = false
     }
 
     compileOptions {

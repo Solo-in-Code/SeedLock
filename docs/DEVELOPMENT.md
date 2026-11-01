@@ -109,7 +109,7 @@ different: built in a fixed environment, they come out identical wherever they a
 ### The version number
 
 The program takes its version from one place, `version` under `[workspace.package]` in the top `Cargo.toml`. The
-menu's title shows it (`=== SeedLock 0.3.1: offline Bitcoin seed tool ===`), and `seedlock --version` prints it.
+menu's title shows it (`=== SeedLock 0.3.2: offline Bitcoin seed tool ===`), and `seedlock --version` prints it.
 `Cargo.lock` records it too: after changing it, run `cargo build --offline` once without `--locked`, so that
 `Cargo.lock` follows. The README and the guides show it as well; see [Making a release](#making-a-release).
 
@@ -152,7 +152,9 @@ How it is made:
   the app's own storage.
 
 A plain `cargo build` still builds only the command-line program (`default-members` in `Cargo.toml`); the phone crates
-are built with `-p`. `android/build-rust.sh` (on Windows `build-rust.ps1`) builds `libseedlock_ffi.so` with cargo-ndk
+are built with `-p`. A release's app is built in the fixed build environment, like the programs (see [How the phone app
+is made](#how-the-phone-app-is-made)). To work on the app on your computer, `android/build-rust.sh` (on Windows
+`build-rust.ps1`) builds `libseedlock_ffi.so` with cargo-ndk
 for 64-bit and 32-bit ARM phones and the x86-64 emulator, writes the Kotlin code, and writes the license notices that
 the app shows (**About SeedLock and its licenses**), with `crates/seedlock-tools` (see [Licenses of the
 libraries](#licenses-of-the-libraries)). Android Studio then builds the app, and only the app: the app module has no
@@ -173,7 +175,9 @@ seed, lets go of what it waited for, and takes a password it copied off the clip
 its screens and its dialogs cannot be captured or recorded (`FLAG_SECURE` on each window); a seed's words cannot be
 selected or copied, and a new password reaches the clipboard only when **Copy it** is tapped (for a password manager
 on the same phone), marked as sensitive, and SeedLock empties the clipboard when it is back in front if its copy is
-still there; its text fields allow no keyboard learning or autofill; its files are left out of Android's cloud backup
+still there; a password or seed words pasted into one of its fields (several characters at once, where a keyboard
+adds one at a time) are taken off the clipboard right after the paste (`secretField`, `MainActivity.pastedSecret`);
+its text fields allow no keyboard learning or autofill; its files are left out of Android's cloud backup
 and of the copy to a new phone; and leaving the app closes every screen but the first and every dialog, and with them
 any open seed (work that ends meanwhile, such as opening a backup, shows nothing). Two exceptions, each for at most 5
 minutes, are for a password manager on the same phone: after **Copy it**, the new seed's screen stays open while the
@@ -226,9 +230,9 @@ A release is a version of SeedLock that people download exactly as it was tested
    same way and click **Commit changes**. Then check that every file is in its folder: a file uploaded on the
    repository's main page lands at the top. To remove a file from GitHub, open it, click **...** at the top right,
    then **Delete file** and **Commit changes**.
-4. **Build the programs** from exactly those files, all three on one computer: Linux with Docker or Podman (or a Mac
-   or Windows with Docker Desktop, slower on a Mac with an Apple chip). Download the files from GitHub (**Code >
-   Download ZIP**), unpack them, and in that folder:
+4. **Build the programs and the phone app** from exactly those files, all on one computer: Linux with Docker or
+   Podman (or a Mac or Windows with Docker Desktop, slower on a Mac with an Apple chip). Download the files from GitHub
+   (**Code > Download ZIP**), unpack them, and in that folder:
 
    ```sh
    sh tools/build-release.sh
@@ -236,51 +240,56 @@ A release is a version of SeedLock that people download exactly as it was tested
 
    (On Windows: `powershell -ExecutionPolicy Bypass -File tools\build-release.ps1`.) It builds them in the fixed build
    environment ([Reproducible builds](#reproducible-builds)) and puts them into `dist`: `seedlock-X.Y.Z-linux-x86_64`,
-   `seedlock-X.Y.Z-windows-x86_64.exe` and `seedlock-X.Y.Z-macos`, where `X.Y.Z` is the version. Inside the
-   environment, `seedlock-tools check-programs` checks each one before it comes out: the kind of program, the system
-   libraries it needs, the protections (a random address each time; on Windows, data never run as code), the Mac
-   program's oldest macOS and its signature, nothing of the test builds, and no folder of the environment or of a user
-   in it. If one is wrong, the build stops and says why. The script then prints each program's SHA-256: write them
-   down. Your user name cannot get into the programs: they are built in the environment's own folders, never in yours.
+   `seedlock-X.Y.Z-windows-x86_64.exe`, `seedlock-X.Y.Z-macos` and the phone app before it is signed,
+   `seedlock-X.Y.Z-android-unsigned.apk`, where `X.Y.Z` is the version. Inside the environment, `seedlock-tools
+   check-programs` checks each program before it comes out: the kind of program, the system libraries it needs, the
+   protections (a random address each time; on Windows, data never run as code), the Mac program's oldest macOS and
+   its signature, nothing of the test builds, and no folder of the environment or of a user in it; and `seedlock-tools
+   check-apk --unsigned` checks the app: its version, a release build, its permissions, the libraries and the code in
+   it, its license notices, and no folder of the environment in it. If one is wrong, the build stops and says why. The
+   script then prints each file's SHA-256: write the programs' down. Your user name cannot get into them: they are
+   built in the environment's own folders, never in yours.
 
    **Then build them once more,** best on another computer, or on the same one with `sh tools/build-release.sh
-   --no-cache` (Docker then builds everything again, without what it kept from the first time): all three must come
+   --no-cache` (Docker then builds everything again, without what it kept from the first time): all four must come
    out with exactly the same SHA-256, as they will for anyone who checks the release.
 
-   **And the phone app,** on the computer with Android Studio and SeedLock's Android key, in that downloaded folder
-   too (android/README.md, Building it yourself, says what it needs):
+   **Then sign the app** with SeedLock's Android key ([The Android signing key](#the-android-signing-key)), in the same
+   folder, with the key store's file (on the encrypted USB stick, for example):
 
-   1. Build the Rust part: `sh android/build-rust.sh` (Windows: `powershell -ExecutionPolicy Bypass -File
-      android\build-rust.ps1`).
-   2. In Android Studio, open the folder `android` of that downloaded folder. Then **Build > Generate Signed App
-      Bundle or APK** (in older versions: **Generate Signed Bundle / APK**), choose **APK** and click **Next**. Choose
-      SeedLock's key store (**Choose existing...**: the file of [The Android signing key](#the-android-signing-key)),
-      type its password, choose the key `seedlock` and type its password, leave **Remember passwords** off; **Next**.
-      Choose **release** and click **Create** (or **Finish**). When it is done, a message links to the APK:
-      `android/app/release/app-release.apk`.
-   3. Check it, in a terminal in that folder: `cargo run --locked -p seedlock-tools -- check-apk
-      android/app/release/app-release.apk`. It lists what it checked (the version, a release build that cannot be
-      debugged, the permissions, the libraries and the code in it, its license notices, no user name inside, and the
-      key it is signed with), puts it into `dist` as `seedlock-X.Y.Z-android.apk` and prints its SHA-256: write that
-      down too. If something is wrong, it says what, and nothing goes into `dist`.
+   ```sh
+   sh tools/sign-apk.sh /path/to/seedlock-android.jks
+   ```
+
+   (On Windows: `powershell -ExecutionPolicy Bypass -File tools\sign-apk.ps1 E:\seedlock-android.jks`.) It signs
+   `seedlock-X.Y.Z-android-unsigned.apk` with the `apksigner` of the fixed environment, in a container without any
+   network that can only read the key store; type the key store's password when it asks (and the key's, if it is
+   another one). It writes `dist/seedlock-X.Y.Z-android.apk`, shows its signature as Android checks it, and then,
+   where Rust is installed, checks it: `seedlock-tools check-apk` lists what it checked (the version, a release build,
+   the permissions, the libraries and the code, the license notices, no user name inside, the key it is signed with,
+   and that without its signature it is byte for byte the app built in the environment) and prints its SHA-256: write
+   that down too. Without Rust on that computer, run `cargo run --locked -p seedlock-tools -- check-apk
+   dist/seedlock-X.Y.Z-android.apk` where it is, with the folder `dist` copied there.
 5. **Try each program** on its system, offline: it starts, shows the version in the menu's title, and opens a backup.
    The Windows and Mac programs are built on Linux, so try them on a real Windows computer and a real Mac (one with an
    Apple chip, and an Intel one if you can) before every release. Best on a computer where Rust was never installed,
    as the users' computers are. (The three test scripts cannot drive a ready-made program: it has no way to be shown a
    stand-in network, see [The online check](#the-online-check).) Install the phone app on a phone as
    android/README.md (Installing the ready-made app) says, and open a backup with it.
-6. **The checksum list.** Bring the phone app into the folder `dist` with the three programs (a USB stick is fine, if
-   it was made on another computer), on a Linux or Mac computer, and check that each file still has the SHA-256
-   written down in step 4. Then, in that folder:
+6. **The checksum list.** In the folder `dist`, on a Linux or Mac computer, check that each file still has the SHA-256
+   written down in step 4. The app before it was signed (`seedlock-X.Y.Z-android-unsigned.apk`) is not part of the
+   release: it stays out of the list and of the upload. In that folder:
 
    ```sh
-   sha256sum seedlock-X.Y.Z-* > SHA256SUMS.txt       # on a Mac: shasum -a 256 seedlock-X.Y.Z-* > SHA256SUMS.txt
+   sha256sum seedlock-X.Y.Z-linux-x86_64 seedlock-X.Y.Z-windows-x86_64.exe seedlock-X.Y.Z-macos \
+     seedlock-X.Y.Z-android.apk > SHA256SUMS.txt
    gpg --local-user E43521D944AE9BAA9FB2D11D08B65FB65CB1D806 --armor --detach-sign SHA256SUMS.txt
    gpg --verify SHA256SUMS.txt.asc SHA256SUMS.txt    # must say: Good signature, with the key's fingerprint
    ```
 
-   The second line signs the list with SeedLock's release key (see [The release key](#the-release-key)) and writes
-   the signature, `SHA256SUMS.txt.asc`.
+   (On a Mac, `shasum -a 256` in place of `sha256sum`.) The first line writes the list of the four files' checksums;
+   the second signs it with SeedLock's release key (see [The release key](#the-release-key)) and writes the
+   signature, `SHA256SUMS.txt.asc`.
 
 7. **Create the release.** On the repository's main page, click **Releases** on the right, then **Draft a new
    release** (before the first release, the link is called **Create a new release**). Open **Choose a tag**, type
@@ -293,7 +302,7 @@ A release is a version of SeedLock that people download exactly as it was tested
    later). GitHub adds the source code of the tag by itself, as **Source code (zip)** and **Source code (tar.gz)**.
 
 Change nothing on GitHub between step 3 and step 7: the tag that step 7 creates must hold exactly the files the
-programs were built from.
+programs and the app were built from.
 
 **Why a checksum list, and why signed.** With `SHA256SUMS.txt`, users check that the program they downloaded is
 complete and is the file the list names, and the same number then checks the copy on their offline computer. But
@@ -385,11 +394,12 @@ It is not the release key that signs the checksum lists: Android uses keys of it
    the same one again. **Validity (years):** 50.
 4. **Certificate:** in **First and Last Name**, type `SeedLock releases`, and leave the other fields empty. What you
    type here is inside every copy of the app, for everyone to read: never your own name.
-5. Click **OK**: the key store is made. Then go on as [Making a release](#making-a-release) says, or close the window.
+5. Click **OK**: the key store is made. Close the window: from 0.3.2 on, the app of a release is signed with
+   `tools/sign-apk.sh` ([Making a release](#making-a-release), step 4), not in Android Studio.
 
 **Keeping it:** copy `seedlock-android.jks` onto the encrypted USB stick that keeps the release key's secret copy,
-and keep its password in your password manager. With those two, any computer with Android Studio can sign the next
-release.
+and keep its password in your password manager. With those two, any computer with Docker or Podman can sign the next
+release (`tools/sign-apk.sh` reads the key store straight from the stick).
 
 **Its fingerprint:** the SHA-256 fingerprint of its certificate is published in
 [`android/README.md`](../android/README.md) (Installing the ready-made app) and written into
@@ -405,21 +415,22 @@ key:
 
 ## Reproducible builds
 
-From version 0.3.1 on, the ready-made programs of a release (for Linux, Windows and the Mac) are built in a fixed
-environment, in which they come out the same, byte for byte, wherever and whenever they are built. So anyone can check
-that a release's programs were made from its published source code, and from nothing else: build them again, and
-compare their SHA-256 checksums with the release's `SHA256SUMS.txt`. That does not depend on trusting SeedLock's
-maintainer, GitHub or the release key. (The phone app is not built this way yet: see [Limitations and
-roadmap](#limitations-and-roadmap).)
+From 0.3.1 on, the ready-made programs of a release (for Linux, Windows and the Mac) are built in a fixed environment,
+in which they come out the same, byte for byte, wherever and whenever they are built; from 0.3.2 on, the phone app is
+too, up to its signature. So anyone can check that a release's programs and app were made from its published source
+code, and from nothing else: build them again, and compare the programs' SHA-256 checksums with the release's
+`SHA256SUMS.txt`, and the release's app, without its signature, with the app built. That does not depend on trusting
+SeedLock's maintainer, GitHub or the release key.
 
 ### Checking a release yourself
 
-You need a computer with Docker or Podman (Linux, or a Mac or Windows with Docker Desktop), about 4 GB of free disk
-space and an internet connection; the first time, about 1 GB is downloaded. (With both installed, the script uses
+You need a computer with Docker or Podman (Linux, or a Mac or Windows with Docker Desktop), about 15 GB of free disk
+space and an internet connection; the first time, about 3 GB is downloaded. (With both installed, the script uses
 Docker when it can build: when it is running and has its part "buildx"; otherwise Podman.) On the release's page:
 
 1. Download **Source code (zip)** and unpack it. Download `SHA256SUMS.txt` into the unpacked folder (and, if you
-   like, check its signature: [the guide](GUIDE.md#checking-a-downloaded-program)).
+   like, check its signature: [the guide](GUIDE.md#checking-a-downloaded-program)). To check the phone app too,
+   download its `seedlock-X.Y.Z-android.apk` into that folder as well.
 2. In that folder:
 
    | System | Command |
@@ -428,29 +439,44 @@ Docker when it can build: when it is running and has its part "buildx"; otherwis
    | Windows | `powershell -ExecutionPolicy Bypass -File tools\build-release.ps1 SHA256SUMS.txt` |
 
    After some minutes (much longer on a Mac with an Apple chip, which runs the environment as an Intel computer), it
-   says for each program whether it is the same as in `SHA256SUMS.txt`, and at the end: `All 3 programs are the same,
-   byte for byte, as the ones in SHA256SUMS.txt`.
+   says for each program whether it is the same as in `SHA256SUMS.txt`, and for the app whether the release's app is
+   the app built there with its signature added and nothing else (and whether it is the file `SHA256SUMS.txt`
+   names). At the end: `All 3 programs are the same, byte for byte, as the ones in SHA256SUMS.txt, and the release's
+   app is the app built here with its signature added and nothing else`.
 
-If a program differs, something is wrong: the source code is not that release's, or something in it was changed (use
-the zip as it is), or the release's program is not what its source code makes. Please report it.
+If a file differs, something is wrong: the source code is not that release's, or something in it was changed (use the
+zip as it is), or the release's file is not what its source code makes. Please report it.
+
+**Why the app is compared without its signature.** Only the holder of SeedLock's Android key can sign the app, so
+nobody else can make the release's file itself. But signing (APK Signature Scheme v2) changes nothing in an app: it
+puts a block with the signature between the app's files and the list of them at the end of the APK (a ZIP archive),
+after zeros that make the block start at a multiple of 4096 bytes, and changes the one number that says where that
+list starts. `seedlock-tools unsigned-apk` takes the block and the zeros off again, so the release's app comes back
+exactly as it was before it was signed: the app built in the environment, byte for byte, if the release is right.
+In the environment, `apksigner verify` first checks that the release's signature is valid.
 
 ### What is fixed
 
-Everything that goes into the programs is in `tools/reproducible/`:
+Everything that goes into the programs and the app is in `tools/reproducible/`:
 
 * `Dockerfile`, the environment: a Debian 13 system, fixed by its digest; Rust 1.97.0, installed by rustup-init 1.29.1
   (checked by its SHA-256, the same as in Rust's own Docker images), which checks the compiler and its libraries for
-  the three systems against the checksums Rust publishes; zig 0.15.2, the C compiler and linker for the three systems
-  (the official build, which the Zig Software Foundation also publishes on PyPI), and cargo-zigbuild 0.23.4, which
-  lets Cargo build with zig, both checked by their SHA-256. SeedLock's libraries are fixed by `Cargo.lock`, each with
-  its checksum.
-* `build-programs.sh`, what runs inside: the source code is copied to the same folder for everyone, `/seedlock`; the
-  file paths that Rust writes into the programs (for their error messages) read `~/.cargo/...` for the libraries and
-  are relative for SeedLock's own code; then the three builds, and `seedlock-tools check-programs`.
+  the three systems and the phone's three kinds of processor against the checksums Rust publishes; zig 0.15.2, the C
+  compiler and linker for the three systems (the official build, which the Zig Software Foundation also publishes on
+  PyPI), and cargo-zigbuild 0.23.4, which lets Cargo build with zig, both checked by their SHA-256. For the app: Java
+  17 (Eclipse Temurin 17.0.20+8), Gradle 8.11.1 and Android's command-line tools 15859902, each checked by its
+  SHA-256, whose sdkmanager installs Android 15's platform (35), the build tools 34.0.0 and the NDK r28c
+  (28.2.13676358) by their exact versions, checking each against Google's checksums (and so accepts the Android SDK's
+  license, as Android Studio asks you to). SeedLock's libraries are fixed by `Cargo.lock`, each with its checksum;
+  the app's (Android's build plugin 8.7.3, Kotlin 2.0.21 and JNA 5.18.1) by their versions in `android/`.
+* `build-programs.sh`, what runs inside for the programs: the source code is copied to the same folder for everyone,
+  `/seedlock`; the file paths that Rust writes into the programs (for their error messages) read `~/.cargo/...` for
+  the libraries and are relative for SeedLock's own code; then the three builds, and `seedlock-tools check-programs`.
+* `build-app.sh`, what runs inside for the app, in the same folder (below).
 * `zig.sh`, which stands in for zig: it gives the Mac program the oldest macOS versions (below).
 
 `.dockerignore` keeps everything else out of the environment: what builds make, and anything private that may be in
-the folder (backups, transactions, keys).
+the folder (backups, transactions, keys). Only a release's app put into the folder to compare it goes in.
 
 ### How the programs are made
 
@@ -472,19 +498,52 @@ rust-bitcoin) and as the linker:
   checks page by page. (While it is built, Rust warns twice that `xcrun` found no MacOSX.sdk: that is expected, as
   zig brings what the linker needs of it.)
 
+### How the phone app is made
+
+`build-app.sh` does in the environment what `android/build-rust.sh` and Android Studio do on a computer:
+
+1. **The Rust library**, `libseedlock_ffi.so`, for 64-bit and 32-bit ARM phones and the x86-64 emulator, with the
+   NDK's clang as C compiler and linker for Android 7.0 (API 24) and newer, set up the way cargo-ndk sets it up, and
+   with the same file paths as in the programs. NDK r28 lays out the 64-bit libraries for phones with 16 KB memory
+   pages by itself.
+2. **The Kotlin code** that calls it (uniffi-bindgen) and **the license notices** the app shows (`seedlock-tools
+   notices --android`).
+3. **The app**, with Gradle and Android's build tools: the release build, without Gradle's background processes and
+   caches, which comes out unsigned. Two settings in `android/app/build.gradle.kts` keep it the same for everyone: no
+   information about the folder it was built in (`vcsInfo`: whether it is a git checkout, and which commit), and no
+   list of its libraries in the signature block (`dependenciesInfo`, which only Google Play reads). The same file
+   names the build tools and the NDK of the environment, so that Android Studio uses them too.
+4. **The check**, `seedlock-tools check-apk --unsigned`: the version, a release build, the permissions, the libraries
+   and the code, the license notices, and no folder of the environment in it.
+
+It comes out as `seedlock-X.Y.Z-android-unsigned.apk`. For a release, `tools/sign-apk.sh` signs it with `apksigner`
+from the environment's build tools (APK Signature Scheme v2, as before; in a container without any network that can
+only read the key store), and `seedlock-tools check-apk` checks that the signed app is that build with the signature
+added and nothing else.
+
 ### Updating the fixed versions
 
-A new Debian, Rust, zig or cargo-zigbuild changes the programs, so change them on purpose, in
-`tools/reproducible/Dockerfile`:
+A new Debian, Rust, zig, cargo-zigbuild, Java, Gradle or Android tool changes the programs or the app, so change them
+on purpose, in `tools/reproducible/Dockerfile`:
 
 * **Debian:** a dated tag of the `debian` image, with its digest (the line `Digest:` that `docker pull` prints; the
   [repo-info](https://github.com/docker-library/repo-info/tree/master/repos/debian/remote) pages list it too).
 * **Rust:** the version after `--default-toolchain`; rustup-init only when Rust's own Docker images change it, with its
   checksum from [docker-rust](https://github.com/rust-lang/docker-rust).
 * **zig and cargo-zigbuild:** the file's address and SHA-256 from PyPI (each version's page, **Download files**).
+* **Java:** a release of [Temurin 17](https://github.com/adoptium/temurin17-binaries/releases), the file
+  `OpenJDK17U-jdk_x64_linux_hotspot_...tar.gz` and the SHA-256 in the `.sha256.txt` beside it.
+* **Gradle:** the same version as in `android/gradle/wrapper/gradle-wrapper.properties` (Android Studio's), with the
+  SHA-256 of its `-bin.zip` from [Gradle's checksums](https://gradle.org/release-checksums/).
+* **Android's command-line tools:** the Linux file and its SHA-256 from [Android Studio's download
+  page](https://developer.android.com/studio#command-line-tools-only); **the platform, the build tools and the NDK**:
+  the versions in the `sdkmanager` line, and the same in `android/app/build.gradle.kts` (`compileSdk`,
+  `buildToolsVersion`, `ndkVersion`).
 
-Then build twice, on two computers, check that both give the same programs, try them on each system, and write the
-new versions here and in [What you need](#what-you-need).
+Then build twice, on two computers, check that both give the same programs and app, try them on each system, and write
+the new versions here and in [What you need](#what-you-need). `cargo test` fails if the Dockerfile, the app's build
+files and this page do not name the same versions (the test
+`the_build_environment_and_the_documents_name_the_same_tool_versions`).
 
 ## Supply chain and the offline audit
 
@@ -567,7 +626,7 @@ this version's, or whose code is from any other library than those.
 
 ### Automated tests
 
-**173 automated tests** (`cargo test --workspace --locked`):
+**176 automated tests** (`cargo test --workspace --locked`):
 
 * **71 for the core library:** backup tamper detection on every bit; a backup's QR code with its name line, still
   read as the backup exactly the way earlier versions read it; BIP39/32/44/49/84/86 test vectors; BIP380 descriptor
@@ -611,9 +670,9 @@ this version's, or whose code is from any other library than those.
   a backup scanned from a named QR code, through a stand-in ffmpeg, giving its name to the files made from it and to
   the keystore; the version in the menu's title, above the menu, and from `--version`; the same version everywhere the
   README and the guides give it; the same release key fingerprint everywhere they give it, which is also the
-  fingerprint of the key in `docs/release-key.asc`; and the same versions of Rust, zig and cargo-zigbuild in the
-  fixed build environment and on this page.
-* **13 for the build helper** (`seedlock-tools`): license expressions read ("(MIT OR Apache-2.0) AND ISC", the old
+  fingerprint of the key in `docs/release-key.asc`; and the same versions of Rust, zig, cargo-zigbuild, Java, Gradle
+  and Android's tools in the fixed build environment, in the app's build files and on this page.
+* **16 for the build helper** (`seedlock-tools`): license expressions read ("(MIT OR Apache-2.0) AND ISC", the old
   "MIT/Apache-2.0"), and of their choices the license that asks the least taken (MIT before others that ask as
   little); license texts recognised by their wording (and a file that only names licenses not taken for one); an MIT
   text split into its copyright lines and the usual text, also libffi's, with its old quotes, while one with an extra
@@ -621,8 +680,12 @@ this version's, or whose code is from any other library than those.
   certificate read (APK Signature Scheme v3 and v2, manifests with UTF-16 and UTF-8 strings); every mistake found (a
   build that can be debugged, the test build, another version, the INTERNET permission, a missing library or one for
   another processor, code of another library, no notices or another version's, the home folder's path inside,
-  Android Studio's test key, no v2 or v3 signature, not an APK at all); the version codes build.gradle.kts gives; the
-  fingerprint of SeedLock's Android certificate the same in the check and in the documents that give it; and the check
+  Android Studio's test key, no v2 or v3 signature, not an APK at all); the signature taken off again, which gives back
+  the APK as it was before it was signed (with the zeros apksigner puts before the signature block, with data
+  descriptors and a ZIP comment), while anything else before the block, or unknown bytes in an unsigned APK, is
+  refused; the app before it is signed checked for the build environment's folders too; the version codes
+  build.gradle.kts gives; the fingerprint of SeedLock's Android certificate the same in the check and in the documents
+  that give it; and the check
   of the ready-made programs (`check-programs`), on programs made for the test: a static, position-independent Linux
   program passes, one with a program interpreter, shared libraries, its symbol table or a fixed address is refused; a
   Windows console program with Windows's protections that needs only Windows's own libraries passes, one that needs
@@ -791,8 +854,10 @@ checked on a computer:
 
 ### The fixed build environment, checked here
 
-This project's test machine cannot download Docker images, nor Rust's libraries for Windows and the Mac, so the
-[fixed build environment](#reproducible-builds) was checked in parts:
+This project's test machine cannot download Docker images, nor Rust's libraries for Windows and the Mac, nor anything
+from Google, Gradle or Maven Central, so the [fixed build environment](#reproducible-builds) was checked in parts. The
+programs' build has since run on real computers (see [Confirmed on real computers](#confirmed-on-real-computers)); the
+app's had not when 0.3.2 was written:
 
 * `build-programs.sh` ran as the environment runs it, in `/seedlock`, with the same zig and cargo-zigbuild, and with
   Rust 1.91 building its libraries for musl and the Mac from source (`-Zbuild-std`) in place of rustup's: the Linux
@@ -813,6 +878,19 @@ This project's test machine cannot download Docker images, nor Rust's libraries 
   with a changed line, DIFFERENT; with a missing one, not in the list; and without Docker or Podman, it says what to
   install. With stand-ins for Docker and Podman, `build-release.sh` and `build-release.ps1` (in PowerShell 7) chose
   Docker only when it was running and had buildx, Podman otherwise, and said what helps when a build stopped.
+* The phone app (0.3.2): `build-app.sh` ran with stand-ins for the NDK's builds and for Gradle (which put the 0.3.1
+  release's app, without its signature, where Gradle puts the app): the compiler, linker and flags it gives each of
+  the three builds (as cargo-ndk 4.1.2 gives them), the Kotlin code and the license notices written before Gradle
+  runs, `check-apk --unsigned` passing that app, and, with the release's app in the folder, that app without its
+  signature written into `dist`, byte for byte the app Gradle made. Java 17.0.20+8 and Gradle 8.11.1 were downloaded
+  and checked against the checksums in the Dockerfile; Android's command-line tools' checksum is Homebrew's.
+* Signing: `seedlock-tools unsigned-apk` took the signature off the 0.3.1 release's app, and off a copy of it signed
+  again with `apksigner` (with the 72 zeros apksigner put before its signature block): both gave the same bytes,
+  which `check-apk --unsigned` passed, and with which `check-apk` then passed the release's app (and refused it next
+  to another build). `sign-apk.sh` and `.ps1` ran with stand-ins for Docker and Podman: the environment's Android
+  tools, `apksigner` without any network, the key store's folder only read (a folder with a space in its name), the
+  signed app written as you on Linux with Docker, nothing replaced. `build-release.sh` and `.ps1` with the release's
+  app in the folder: the same app, a different one, one not in `SHA256SUMS.txt`, and one whose checksum is another.
 
 ### Confirmed on real computers
 
@@ -865,6 +943,12 @@ By SeedLock's users:
 * **Version 0.3.0:** that SeedLock works only offline, on the users' Linux, macOS and Windows computers and on the
   phone: the message while the computer is connected, Enter checking again, and the stop when a connection appears
   while it is open.
+* **Version 0.3.1, the reproducible build:** `tools/build-release.sh` built the three programs in the fixed build
+  environment on Linux, and built them again (with `--no-cache`, or on another computer) to the same SHA-256; the
+  release's programs were those.
+  On real computers, offline: the Linux program; the Windows program, made with the MinGW tools; and the Mac program,
+  linked by zig, on a Mac with an Apple chip. They start, show the version, open a backup and sign; and the phone app
+  was built and installed over the earlier one as before.
 * Also confirmed: reading a backup from its QR code; the online warning on Linux; and multisig with Sparrow (2 of 3,
   native SegWit): the keys typed in or scanned by Sparrow's xpub button, the wallet's descriptor from a file, from an
   animated UR code and from static BBQr codes at two densities (in good light), and its transactions signed by one
@@ -887,9 +971,11 @@ You should know these:
    picker as a transaction's file, which works), nested and legacy multisig wallets, and other phones and Android
    versions than the Xiaomi Mi 8 with Android 10; see
    [The phone app, checked on a computer](#the-phone-app-checked-on-a-computer).
-7. The reproducible build (new in 0.3.1): the fixed build environment on real computers, giving the same programs on
-   two of them; and the programs it makes, on real computers: the Windows program, now made with the MinGW tools
-   instead of Visual C++, and the Mac program, now linked by zig instead of Apple's linker.
+7. The reproducible build: the programs' build with Docker Desktop on a Mac or on Windows (`build-release.ps1`), and
+   the Mac program on a Mac with an Intel chip.
+8. New in 0.3.2: the phone app built in the fixed build environment (its Android tools, its build twice to the same
+   app), signed with `tools/sign-apk.sh`, and installed over the earlier app with the backups kept; and the clipboard
+   emptied right after a password is pasted into the app.
 
 Menu 9 and `seedlock camera` let anyone check their own camera setup.
 
@@ -1038,8 +1124,8 @@ crates/seedlock-cli       the `seedlock` program: prompts, menu, files, QR pictu
 crates/seedlock-qr        reading QR codes in camera pictures, and making QR codes (no I/O; used by both programs)
 crates/seedlock-ffi       the phone app's library: what the app calls, made callable from Kotlin by UniFFI
 crates/uniffi-bindgen     writes the Kotlin code that calls seedlock-ffi (run by android/build-rust.sh)
-crates/seedlock-tools     the build helper: the phone app's license notices, the checks of a release APK and of the
-                          ready-made programs (never in SeedLock)
+crates/seedlock-tools     the build helper: the phone app's license notices, the checks of the ready-made programs,
+                          of the app before and after it is signed, taking an APK's signature off (never in SeedLock)
 android/                  the Android app (preview): its README, build-rust.sh and .ps1, the app, jvm-check/
 docs/GUIDE.md             the user guide
 docs/DEVELOPMENT.md       this page
@@ -1050,10 +1136,11 @@ docs/logo/                the logo (SVG and PNG files) and make_logo.py, which d
 install.sh                builds the program and installs it, so that `seedlock` starts it from any folder
 LICENSE                   the MIT license (for everything except the logo)
 tools/                    recover.py, crosscheck*.py, interactive_test.py, qr_flow_test.py, multisig_test.py, audit-offline.sh,
-                          build-release.sh and build-release.ps1 (build the ready-made programs of a release)
-tools/reproducible/       the fixed build environment of those programs: Dockerfile, build-programs.sh, zig.sh
+                          build-release.sh and .ps1 (build the ready-made programs and the phone app of a release),
+                          sign-apk.sh and .ps1 (sign that app with SeedLock's Android key)
+tools/reproducible/       the fixed build environment: Dockerfile, build-programs.sh, build-app.sh, zig.sh
 .dockerignore             what the build environment leaves out of SeedLock's folder
-dist/                     made by build-release.sh and .ps1: the ready-made programs (never committed)
+dist/                     made by build-release.sh and .ps1: the ready-made programs and the app (never committed)
 seedlocker backups/       made where you run seedlock: your backups and their QR pictures (never committed)
 seedlocker transactions/  made where you run seedlock: signed files of scanned transactions, and QR pages (never committed)
 ```
@@ -1072,7 +1159,12 @@ command-line program write the same backups and the same QR codes (the backup's 
 Sparrow as a QR code that names the keystore), so either one opens what the other made (use `--kdf light` for very old
 phones).
 
-**Reproducible builds, the phone app too.** From 0.3.1 on, the computer programs are built reproducibly (see
-[Reproducible builds](#reproducible-builds)). Next, the phone app: its APK built in a fixed environment as well
-(Android's tools, each fixed by its version and checksum), so that anyone can compare it with the released one, apart
-from its signature, which only the holder of SeedLock's Android key can add.
+**Silent payments (next, 0.4.0).** Sparrow 2.5 has wallets for silent payments (BIP 352) with offline signers: a
+static address that payers use again and again, while each payment lands on an address of its own that nobody else
+can link to it. SeedLock is to give such a wallet to Sparrow (an `sp()` descriptor, BIP 392), show its address, and
+sign its payments, on the computer and on the phone: spending what it received (BIP 376) and paying silent payment
+addresses, its own change included (BIP 375), all in PSBT version 2 (BIP 370), which Sparrow uses for these.
+
+**Reproducible builds.** From 0.3.1 on, the computer programs are built reproducibly, and from 0.3.2 on the phone app
+too (see [Reproducible builds](#reproducible-builds)). Possible later steps: Gradle checking the app's libraries by
+their checksums too (its dependency verification), not only by their versions.

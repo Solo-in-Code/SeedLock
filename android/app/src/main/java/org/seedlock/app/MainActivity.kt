@@ -18,6 +18,7 @@ import android.os.PersistableBundle
 import android.os.SystemClock
 import android.view.View
 import android.view.WindowManager
+import android.widget.Toast
 import java.io.File
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
@@ -363,6 +364,30 @@ class MainActivity : Activity() {
             if (Build.VERSION.SDK_INT >= 28) manager.clearPrimaryClip() else manager.setPrimaryClip(ClipData.newPlainText("", ""))
         }
         copiedLabel = null
+    }
+
+    /**
+     * A password or seed words were just pasted into one of SeedLock's fields (see `secretField`): the clipboard
+     * most likely holds them, copied from a password manager, so it is emptied at once, and SeedLock says so.
+     */
+    fun pastedSecret() {
+        val manager = clipboard()
+        val holdsSomething = try {
+            when {
+                !manager.hasPrimaryClip() -> false
+                Build.VERSION.SDK_INT >= 28 -> true
+                // up to Android 8.1, SeedLock empties the clipboard by putting an empty text on it
+                else -> !manager.primaryClip?.getItemAt(0)?.text.isNullOrEmpty()
+            }
+        } catch (e: Exception) {
+            true
+        }
+        if (!holdsSomething) return // typed, not pasted (or emptied already)
+        clearClipboard()
+        // what SeedLock itself had put there is gone with it: nothing left to empty later
+        copiedLabel = null
+        awayDuringPrompt = false
+        Toast.makeText(this, "Pasted. SeedLock emptied the clipboard.", Toast.LENGTH_SHORT).show()
     }
 
     /** Empties the clipboard, whatever it holds (writing to it needs no focus, unlike reading it). */

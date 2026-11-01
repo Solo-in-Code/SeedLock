@@ -11,6 +11,7 @@ import android.graphics.Typeface
 import android.os.Build
 import android.text.Editable
 import android.text.InputType
+import android.text.TextWatcher
 import android.util.TypedValue
 import android.view.View
 import android.view.ViewGroup
@@ -142,6 +143,25 @@ fun secretField(context: Context, hint: String, kind: FieldKind): EditText = Edi
     // keyboards such as Gboard: do not learn or remember what is typed here (their "incognito" mode)
     imeOptions = imeOptions or IME_FLAG_NO_PERSONALIZED_LEARNING
     noAutofill(this)
+    if (kind == FieldKind.PASSWORD || kind == FieldKind.WORDS) emptiesClipboardOnPaste(this)
+}
+
+/**
+ * A password (or seed words) pasted into [field], copied from a password manager for example, does not stay on the
+ * clipboard: right after the paste, SeedLock empties it, so that no other app finds the secret there. A paste puts
+ * several characters into the field at once; a keyboard adds one at a time (these fields offer no suggestions and
+ * no autofill).
+ */
+private fun emptiesClipboardOnPaste(field: EditText) {
+    field.addTextChangedListener(object : TextWatcher {
+        override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
+
+        override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {
+            if (count >= 2) (field.context as? MainActivity)?.pastedSecret()
+        }
+
+        override fun afterTextChanged(s: Editable?) {}
+    })
 }
 
 /** Keeps autofill services (password managers and the like) away from a view and everything in it. */
