@@ -17,6 +17,7 @@ import android.view.View
 import android.view.ViewGroup
 import android.view.WindowManager
 import android.view.autofill.AutofillManager
+import android.view.autofill.AutofillValue
 import android.widget.Button
 import android.widget.CheckBox
 import android.widget.EditText
@@ -131,7 +132,7 @@ private const val IME_FLAG_NO_PERSONALIZED_LEARNING = 0x1000000
 private const val IMPORTANT_FOR_AUTOFILL_NO_EXCLUDE_DESCENDANTS = 0x8
 
 /** A text field that keeps what is typed out of the keyboard's suggestions and memory, and out of autofill. */
-fun secretField(context: Context, hint: String, kind: FieldKind): EditText = EditText(context).apply {
+fun secretField(context: Context, hint: String, kind: FieldKind): EditText = SecretField(context).apply {
     this.hint = hint
     inputType = when (kind) {
         FieldKind.PASSWORD -> InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
@@ -147,24 +148,35 @@ fun secretField(context: Context, hint: String, kind: FieldKind): EditText = Edi
     if (kind == FieldKind.PASSWORD || kind == FieldKind.WORDS) emptiesClipboardOnPaste(this)
 }
 
+/** A text field for a secret, which knows when a password manager fills it in (autofill, see [allowAutofill]). */
+private class SecretField(context: Context) : EditText(context) {
+    /** True while a password manager fills in the field: Android calls [autofill] for that (Android 8 and newer). */
+    var fillingIn = false
+        private set
+
+    override fun autofill(value: AutofillValue?) {
+        fillingIn = true
+        try {
+            super.autofill(value)
+        } finally {
+            fillingIn = false
+        }
+    }
+}
+
 /**
  * A password (or seed words) pasted into [field], copied from a password manager for example, does not stay on the
  * clipboard: right after the paste, SeedLock empties it, so that no other app finds the secret there. A paste puts
  * several characters into the field at once; a keyboard adds one at a time (these fields offer no suggestions). A
  * password manager that fills in a backup's password ([allowAutofill]) also puts it there at once, but without the
- * clipboard, which then stays as it is: the field counts as filled in once the autofill is over.
+ * clipboard, which then stays as it is.
  */
-private fun emptiesClipboardOnPaste(field: EditText) {
+private fun emptiesClipboardOnPaste(field: SecretField) {
     field.addTextChangedListener(object : TextWatcher {
         override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
 
         override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {
-            if (count >= 2) {
-                field.post {
-                    val filledIn = Build.VERSION.SDK_INT >= 26 && field.isAutofilled
-                    if (!filledIn) (field.context as? MainActivity)?.pastedSecret()
-                }
-            }
+            if (count >= 2 && !field.fillingIn) (field.context as? MainActivity)?.pastedSecret()
         }
 
         override fun afterTextChanged(s: Editable?) {}
