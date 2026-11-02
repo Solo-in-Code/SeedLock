@@ -964,7 +964,9 @@ By SeedLock's users:
   earlier app, with the backups kept, on two phones. And what keyboards keep: on the Xiaomi Mi 8 with Gboard,
   SeedLock emptied the clipboard after the paste (its message said so), yet for about 16 seconds the password could
   still be pasted in another app, and from Gboard's own clipboard; on a Samsung phone with Samsung's keyboard, it
-  could still be pasted too. Hence autofill for a backup's password.
+  could still be pasted too. Hence autofill for a backup's password. A password typed by hand into the password
+  window was not offered to the password manager to save, the message after a paste was the new one, and the Linux
+  program built there shows 0.3.2.
 * Also confirmed: reading a backup from its QR code; the online warning on Linux; and multisig with Sparrow (2 of 3,
   native SegWit): the keys typed in or scanned by Sparrow's xpub button, the wallet's descriptor from a file, from an
   animated UR code and from static BBQr codes at two densities (in good light), and its transactions signed by one
@@ -989,8 +991,11 @@ You should know these:
    [The phone app, checked on a computer](#the-phone-app-checked-on-a-computer).
 7. The reproducible build: the programs' build with Docker Desktop on a Mac or on Windows (`build-release.ps1`), and
    the Mac program on a Mac with an Intel chip.
-8. New in 0.3.2: a backup's password filled in by a password manager on the phone (autofill, with Bitwarden), and
-   nothing offered to the password manager to save afterwards.
+8. New in 0.3.2: a backup's password filled in by a password manager on the phone (autofill). On the Xiaomi Mi 8,
+   Bitwarden offered the entry, but choosing it filled in nothing: Xiaomi's permission for Bitwarden to display
+   pop-up windows while running in the background was most likely missing (without it, Bitwarden's window that
+   completes the fill cannot open). On a Samsung phone, AliasVault offered no entry: it offers only entries with a
+   username or an email, and the entry had neither.
 
 Menu 9 and `seedlock camera` let anyone check their own camera setup.
 
