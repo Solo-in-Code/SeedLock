@@ -202,13 +202,16 @@ then. Until the phone is offline, its first screen shows only a message (it chec
    services** on (Android asks you to choose Bitwarden); then open the entry with the backup's password,
    tap **Edit**, and under **Autofill Options** add the website (URI) `androidapp://org.seedlock.app` (for
    SeedLock test: `androidapp://org.seedlock.app.debug`). In SeedLock's password window, tap the password
-   field and choose that entry. Copy and paste works too: copy the password in the password manager and
-   come back to SeedLock within 5 minutes to paste it (the prompt waits that long). Right after the paste,
-   SeedLock empties the clipboard, checks a moment later that it stayed empty, and says what it found. But
-   a keyboard with a clipboard of its own keeps a copy that no app can delete: on a Xiaomi Mi 8 with
-   Gboard and on a Samsung phone with Samsung's keyboard, the password could still be pasted in another
-   app after SeedLock had emptied the clipboard. So use autofill, or turn the keyboard's clipboard off (in
-   Gboard: **Settings > Clipboard**).
+   field and choose that entry. On a Xiaomi phone, Bitwarden also needs a permission of Xiaomi's, or
+   choosing the entry fills in nothing: **Settings > Apps > Manage apps > Bitwarden > Other permissions >
+   Display pop-up windows while running in the background**. AliasVault offers only entries with a
+   username or an email: give the entry one (the backup's name, for example). Copy and paste works too:
+   copy the password in the password manager and come back to SeedLock within 5 minutes to paste it (the
+   prompt waits that long). Right after the paste, SeedLock empties the clipboard, checks a moment later
+   that it stayed empty, and says what it found. But a keyboard with a clipboard of its own keeps a copy
+   that no app can delete: on a Xiaomi Mi 8 with Gboard and on a Samsung phone with Samsung's keyboard,
+   the password could still be pasted in another app after SeedLock had emptied the clipboard. So use
+   autofill, or turn the keyboard's clipboard off (in Gboard: **Settings > Clipboard**).
 3. **Wallet for Sparrow**: in Sparrow on the online computer, **File > Import Wallet > Output Descriptor >
    Scan...** and hold the phone's screen to the camera. Sparrow must show the same fingerprint and the
    same first addresses as the phone. Sparrow names the wallet's keystore after the backup (its first
