@@ -844,8 +844,9 @@ checked on a computer:
 * The wallet's QR code for Sparrow, for all four address types on mainnet and a test network, read once with Sparrow's
   own UR library (hummingbird, built from its source) the way Sparrow's scanner reads it: each gives the right address
   type, the key's origin and the backup's name as the keystore's label.
-* The app's Kotlin code compiles with the Kotlin compiler against Android's own classes (those of Android 15, which
-  the app is built with), the Kotlin code from `uniffi-bindgen` and JNA.
+* The app's Kotlin code compiles with the Kotlin compiler against Android's public classes (the SDK's `android.jar` of
+  Android 15, which the app is built with), the Kotlin code from `uniffi-bindgen` and JNA. Only the public ones: a jar
+  that also held Android's hidden methods once let a call through (`View.isAutofilled`) that the real build refused.
 * The library type-checks for all three kinds of phone processor (64-bit ARM, 32-bit ARM and x86-64), with Rust's
   standard library built for Android.
 * `android/build-rust.sh` and `build-rust.ps1` were run with stand-ins for rustup, cargo and cargo-ndk: their steps,
