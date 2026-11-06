@@ -177,10 +177,10 @@ pub fn page(title: &str, heading: &str, hints: &[&str], codes: &[QrCode], interv
         // Without JavaScript the pictures still take turns, by CSS alone.
         let cycle = n as u32 * interval_ms;
         let step = 100.0 / n as f64;
-        let _ = write!(
+        let _ = writeln!(
             html,
             "<noscript><style>.frame{{display:block;opacity:0;animation:cycle {cycle}ms steps(1,end) infinite}}\
-             @keyframes cycle{{0%{{opacity:1}}{step:.4}%{{opacity:0}}100%{{opacity:0}}}}</style></noscript>\n"
+             @keyframes cycle{{0%{{opacity:1}}{step:.4}%{{opacity:0}}100%{{opacity:0}}}}</style></noscript>"
         );
     }
     html.push_str("</head><body>\n");

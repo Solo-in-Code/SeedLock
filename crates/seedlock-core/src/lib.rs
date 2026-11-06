@@ -1,8 +1,8 @@
 //! # seedlock-core
 //!
 //! Offline Bitcoin seed tooling that needs no special hardware:
-//! password-encrypted mnemonic backups, BIP32/44/49/84/86 derivation and
-//! PSBT review/signing.
+//! password-encrypted mnemonic backups, BIP32/44/49/84/86 derivation,
+//! silent payments (BIP352) and PSBT review/signing.
 //!
 //! The crate does no I/O and never touches the network, so it can be embedded
 //! in a command-line tool today and in Android / iOS apps later.
@@ -16,6 +16,9 @@ pub mod error;
 pub mod mnemonic;
 pub mod multisig;
 pub mod psbt;
+mod psbt_silent;
+mod psbt_v2;
+pub mod silent;
 pub mod wallet;
 
 pub use error::{Error, Result};

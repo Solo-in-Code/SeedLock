@@ -855,7 +855,7 @@ mod tests {
         let code = QrCode::with_error_correction_level(TEXT, EcLevel::L).unwrap();
         let drawn = paint_compact(&code);
         assert!(drawn.contains('▀') && drawn.contains('▄'));
-        assert_eq!(drawn.lines().count(), (code.width() + 8 + 1) / 2);
+        assert_eq!(drawn.lines().count(), (code.width() + 8).div_ceil(2));
         assert!(drawn.lines().all(|l| l.starts_with("\x1b[38;5;16;48;5;231m") && l.ends_with("\x1b[0m")));
     }
 

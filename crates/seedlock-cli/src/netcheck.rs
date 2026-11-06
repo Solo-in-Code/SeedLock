@@ -169,10 +169,8 @@ fn windows_default_routes(output: &str) -> Vec<String> {
     for line in output.lines() {
         let t: Vec<&str> = line.split_whitespace().collect();
         let n = t.len();
-        if n >= 5 && t[0] == "0.0.0.0" && t[1] == "0.0.0.0" && t[n - 1].parse::<u32>().is_ok() {
-            if is_ipv4_address(t[n - 2]) {
-                add(&mut found, t[n - 2]);
-            }
+        if n >= 5 && t[0] == "0.0.0.0" && t[1] == "0.0.0.0" && t[n - 1].parse::<u32>().is_ok() && is_ipv4_address(t[n - 2]) {
+            add(&mut found, t[n - 2]);
         }
         if n >= 4 && t[2] == "::/0" && t[0].parse::<u32>().is_ok() && t[1].parse::<u32>().is_ok() {
             let name = names.get(t[0]).cloned().unwrap_or_else(|| format!("IPv6 interface {}", t[0]));

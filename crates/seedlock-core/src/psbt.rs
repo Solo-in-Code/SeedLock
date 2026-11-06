@@ -21,12 +21,15 @@
 //!   for multisig change.
 
 use crate::multisig::{MultisigScript, MultisigWallet};
+use crate::psbt_silent::{self, Extras, Own};
+use crate::psbt_v2::{self, RawPsbt};
 use crate::wallet::{path_to_display, ScriptType, Wallet};
 use crate::{Error, Result};
 use bitcoin::bip32::{ChildNumber, DerivationPath, Fingerprint, KeySource};
+use bitcoin::hashes::Hash;
 use bitcoin::psbt::Psbt;
-use bitcoin::secp256k1;
-use bitcoin::sighash::{EcdsaSighashType, TapSighashType};
+use bitcoin::secp256k1::{self, Keypair, Message, Secp256k1};
+use bitcoin::sighash::{EcdsaSighashType, Prevouts, SighashCache, TapSighashType};
 use bitcoin::taproot::TapLeafHash;
 use bitcoin::{Address, Amount, Network, OutPoint, PublicKey, ScriptBuf, TxOut, XOnlyPublicKey};
 use std::collections::BTreeMap;
@@ -44,6 +47,10 @@ pub enum OutputKind {
     MultisigChange { path: String, wallet: String },
     /// Verified: one of a registered multisig wallet's receive addresses.
     MultisigReceive { path: String, wallet: String },
+    /// Verified change to this wallet's own silent payment address (its change label, 0).
+    SilentChange,
+    /// Verified: pays this wallet's own silent payment address (with this label, if any).
+    SilentReceive { label: Option<u32> },
 }
 
 /// One input as shown to the person.
@@ -79,8 +86,12 @@ pub struct MultisigSummary {
 pub struct OutputReview {
     pub index: usize,
     pub value: Amount,
+    /// Where it goes: an address, or for a silent payment, the silent payment address (`sp1q...`).
     pub address: String,
     pub kind: OutputKind,
+    /// For a silent payment: the address it has on chain (`bc1p...`), which nobody else can link to the silent
+    /// payment address.
+    pub silent_payment: Option<String>,
 }
 
 /// Everything a person should look at before agreeing to sign.
@@ -108,28 +119,167 @@ pub fn format_btc(amount: Amount) -> String {
     format!("{}.{:08}", sats / 100_000_000, sats % 100_000_000)
 }
 
-/// Read a PSBT from raw bytes: binary, base64 text or hex text.
-pub fn decode(data: &[u8]) -> Result<Psbt> {
-    let bytes: Vec<u8> = if data.starts_with(b"psbt\xff") {
-        data.to_vec()
+/// The bytes of a PSBT given as binary, base64 text or hex text.
+fn psbt_bytes(data: &[u8]) -> Result<Vec<u8>> {
+    if data.starts_with(b"psbt\xff") {
+        return Ok(data.to_vec());
+    }
+    let text = std::str::from_utf8(data).map_err(|_| Error::Psbt("this is not a PSBT (unrecognised file format)".into()))?;
+    let compact: String = text.split_whitespace().collect();
+    if let Ok(b) = data_encoding::BASE64.decode(compact.as_bytes()) {
+        Ok(b)
+    } else if let Ok(b) = data_encoding::HEXLOWER_PERMISSIVE.decode(compact.as_bytes()) {
+        Ok(b)
     } else {
-        let text = std::str::from_utf8(data)
-            .map_err(|_| Error::Psbt("this is not a PSBT (unrecognised file format)".into()))?;
-        let compact: String = text.split_whitespace().collect();
-        if let Ok(b) = data_encoding::BASE64.decode(compact.as_bytes()) {
-            b
-        } else if let Ok(b) = data_encoding::HEXLOWER_PERMISSIVE.decode(compact.as_bytes()) {
-            b
-        } else {
-            return Err(Error::Psbt("this is not a PSBT (expected binary, base64 or hex)".into()));
-        }
-    };
-    Psbt::deserialize(&bytes).map_err(|e| Error::Psbt(format!("invalid PSBT: {e}")))
+        Err(Error::Psbt("this is not a PSBT (expected binary, base64 or hex)".into()))
+    }
+}
+
+/// Read a PSBT of version 0 from raw bytes: binary, base64 text or hex text. ([`Request::decode`] reads
+/// version 2 too.)
+pub fn decode(data: &[u8]) -> Result<Psbt> {
+    Psbt::deserialize(&psbt_bytes(data)?).map_err(|e| Error::Psbt(format!("invalid PSBT: {e}")))
 }
 
 /// Base64 text form, as accepted by Sparrow, Bitcoin Core, etc.
 pub fn encode_base64(psbt: &Psbt) -> String {
     data_encoding::BASE64.encode(&psbt.serialize())
+}
+
+/// A transaction to sign, as it came in: a PSBT of version 0 (what most wallets send) or of version 2 (what
+/// Sparrow sends with silent payments, BIP 370). It is reviewed and signed in its version-0 form, and leaves in
+/// the version it came in, with the signatures, and for silent payments what the signer adds (BIP 375).
+#[derive(Clone, Debug)]
+pub struct Request {
+    /// Its version-0 form, which is reviewed and signed (for version 2 before the wallet worked out its silent
+    /// payment outputs, they have a stand-in script here).
+    psbt: Psbt,
+    /// The PSBT itself, when it is of version 2.
+    v2: Option<RawPsbt>,
+}
+
+impl From<Psbt> for Request {
+    fn from(psbt: Psbt) -> Request {
+        Request { psbt, v2: None }
+    }
+}
+
+impl Request {
+    /// Reads a PSBT of version 0 or 2 from raw bytes: binary, base64 text or hex text.
+    pub fn decode(data: &[u8]) -> Result<Request> {
+        Request::from_bytes(&psbt_bytes(data)?)
+    }
+
+    /// Reads a PSBT of version 0 or 2 from its binary form.
+    pub fn from_bytes(bytes: &[u8]) -> Result<Request> {
+        let raw = RawPsbt::parse(bytes)?;
+        if raw.version() == 0 {
+            if raw.has_silent_payment_fields() {
+                return Err(Error::Psbt("this PSBT has fields of silent payments, which need PSBT version 2".into()));
+            }
+            return Ok(Request { psbt: Psbt::deserialize(bytes).map_err(|e| Error::Psbt(format!("invalid PSBT: {e}")))?, v2: None });
+        }
+        Ok(Request { psbt: psbt_v2::to_v0_with_stand_ins(&raw)?, v2: Some(raw) })
+    }
+
+    /// Its version-0 form (see [`Request`]).
+    pub fn psbt(&self) -> &Psbt {
+        &self.psbt
+    }
+
+    /// The PSBT's version: 0 or 2.
+    pub fn version(&self) -> u32 {
+        self.v2.as_ref().map_or(0, RawPsbt::version)
+    }
+
+    /// Whether it spends or pays silent payments.
+    pub fn has_silent_payments(&self) -> bool {
+        self.v2.as_ref().is_some_and(RawPsbt::has_silent_payment_fields)
+    }
+
+    /// The PSBT, in the version it came in.
+    pub fn serialize(&self) -> Vec<u8> {
+        match &self.v2 {
+            Some(raw) => raw.serialize(),
+            None => self.psbt.serialize(),
+        }
+    }
+
+    /// Base64 text form, as accepted by Sparrow, Bitcoin Core, etc.
+    pub fn to_base64(&self) -> String {
+        data_encoding::BASE64.encode(&self.serialize())
+    }
+
+    /// The frames of an animated QR code that carries it (see [`ur_frames`]).
+    pub fn ur_frames(&self) -> Result<Vec<String>> {
+        ur_frames_of(&self.serialize(), UR_FRAGMENT_LEN)
+    }
+
+    /// The master fingerprints of the wallets that the PSBT says sign its inputs, each once, in the order it lists
+    /// them: from the inputs' key paths (BIP 32 and taproot), and the spend key paths of silent payments (BIP 376;
+    /// a fingerprint of zeros, which hides the wallet, is left out). With a BIP39 passphrase a seed is another
+    /// wallet, with another fingerprint.
+    pub fn input_fingerprints(&self) -> Vec<Fingerprint> {
+        let mut found: Vec<Fingerprint> = Vec::new();
+        for (i, input) in self.psbt.inputs.iter().enumerate() {
+            let silent = self.v2.iter().flat_map(|raw| raw.inputs[i].entries(psbt_v2::IN_SP_SPEND_BIP32_DERIVATION)).filter_map(|(_, value)| {
+                let bytes: [u8; 4] = value.get(..4)?.try_into().ok()?;
+                (bytes != [0; 4]).then(|| Fingerprint::from(bytes))
+            });
+            let origins = input.bip32_derivation.values().map(|(f, _)| *f).chain(input.tap_key_origins.values().map(|(_, (f, _))| *f));
+            for fingerprint in origins.chain(silent) {
+                if !found.contains(&fingerprint) {
+                    found.push(fingerprint);
+                }
+            }
+        }
+        found
+    }
+
+    /// What its key paths say about the network (see [`network_hint`]); those of silent payments too.
+    pub fn network_hint(&self) -> NetworkHint {
+        let mut extra = Vec::new();
+        if let Some(raw) = &self.v2 {
+            for map in &raw.inputs {
+                for (_, value) in map.entries(psbt_v2::IN_SP_SPEND_BIP32_DERIVATION) {
+                    if value.len() >= 12 {
+                        // the fingerprint, then purpose and coin type
+                        extra.push(u32::from_le_bytes([value[8], value[9], value[10], value[11]]));
+                    }
+                }
+            }
+        }
+        network_hint_with(&self.psbt, &extra)
+    }
+
+    /// Inspects it against a wallet (and these registered multisig wallets) without changing it: as [`review_with`],
+    /// with the silent payments it spends and pays worked out for the wallet.
+    pub fn review(&self, wallet: &Wallet, multisig: &[(String, MultisigWallet)]) -> Result<Review> {
+        match &self.v2 {
+            None => review_inner(&self.psbt, wallet, multisig, None),
+            Some(raw) => {
+                let (_, psbt, silent) = psbt_silent::prepare(raw, wallet, multisig)?;
+                review_inner(&psbt, wallet, multisig, Some(&silent))
+            }
+        }
+    }
+
+    /// Signs every input that belongs to the wallet, as [`sign_with`]; for a PSBT of version 2, with what its
+    /// silent payments need first (BIP 375, 376). Returns how many inputs were signed.
+    pub fn sign(&mut self, wallet: &Wallet, multisig: &[(String, MultisigWallet)]) -> Result<usize> {
+        match &self.v2 {
+            None => sign_inner(&mut self.psbt, wallet, multisig, None),
+            Some(raw) => {
+                let (mut raw, mut psbt, silent) = psbt_silent::prepare(raw, wallet, multisig)?;
+                let signed = sign_inner(&mut psbt, wallet, multisig, Some(&silent))?;
+                psbt_v2::add_new_entries(&mut raw, &psbt)?;
+                psbt_v2::clear_modifiable(&mut raw);
+                self.psbt = psbt;
+                self.v2 = Some(raw);
+                Ok(signed)
+            }
+        }
+    }
 }
 
 /// Inspect a PSBT against a wallet without changing it.
@@ -139,6 +289,11 @@ pub fn review(psbt: &Psbt, wallet: &Wallet) -> Result<Review> {
 
 /// [`review`], knowing these registered multisig wallets (name, wallet).
 pub fn review_with(psbt: &Psbt, wallet: &Wallet, multisig: &[(String, MultisigWallet)]) -> Result<Review> {
+    review_inner(psbt, wallet, multisig, None)
+}
+
+/// [`review_with`], knowing what silent payments the transaction spends and pays (a PSBT of version 2).
+fn review_inner(psbt: &Psbt, wallet: &Wallet, multisig: &[(String, MultisigWallet)], silent: Option<&Extras>) -> Result<Review> {
     let network = wallet.network();
     let n_in = psbt.unsigned_tx.input.len();
     let n_out = psbt.unsigned_tx.output.len();
@@ -159,6 +314,21 @@ pub fn review_with(psbt: &Psbt, wallet: &Wallet, multisig: &[(String, MultisigWa
         let txout = input_txout(psbt, i)?;
         check_sighash(psbt, i, &txout)?;
         let inp = &psbt.inputs[i];
+        if let Some(spend) = silent.and_then(|s| s.spends.get(i)).and_then(Option::as_ref) {
+            // a silent payment to this wallet, which its spend key and the PSBT's tweak spend
+            own_inputs += 1;
+            total_in = total_in.checked_add(txout.value).ok_or_else(|| Error::Psbt("input amounts overflow".into()))?;
+            inputs.push(InputReview {
+                index: i,
+                outpoint: psbt.unsigned_tx.input[i].previous_output,
+                value: txout.value,
+                address: Address::from_script(&txout.script_pubkey, network).ok().map(|a| a.to_string()),
+                path: Some(spend.path.clone()),
+                multisig: None,
+                key: None,
+            });
+            continue;
+        }
         let claim = ownership(
             wallet,
             &txout,
@@ -245,6 +415,25 @@ pub fn review_with(psbt: &Psbt, wallet: &Wallet, multisig: &[(String, MultisigWa
     let mut sending = Amount::ZERO;
     for (j, out) in psbt.unsigned_tx.output.iter().enumerate() {
         let po = &psbt.outputs[j];
+        if let Some(payment) = silent.and_then(|s| s.payments.get(j)).and_then(Option::as_ref) {
+            let kind = match payment.own {
+                Some(Own::Change) => OutputKind::SilentChange,
+                Some(Own::Receive(label)) => OutputKind::SilentReceive { label },
+                None => OutputKind::External,
+            };
+            total_out = total_out.checked_add(out.value).ok_or_else(|| Error::Psbt("output amounts overflow".into()))?;
+            if kind == OutputKind::External {
+                sending = sending.checked_add(out.value).unwrap_or(Amount::MAX);
+            }
+            outputs.push(OutputReview {
+                index: j,
+                value: out.value,
+                address: payment.address.clone(),
+                kind,
+                silent_payment: Some(describe_script(out, network)),
+            });
+            continue;
+        }
         let kind = match ownership(
             wallet,
             out,
@@ -295,6 +484,7 @@ pub fn review_with(psbt: &Psbt, wallet: &Wallet, multisig: &[(String, MultisigWa
             value: out.value,
             address: describe_script(out, network),
             kind,
+            silent_payment: None,
         });
     }
 
@@ -351,7 +541,13 @@ pub fn sign(psbt: &mut Psbt, wallet: &Wallet) -> Result<usize> {
 /// approved must carry a signature made with this seed's own key for it (in a multisig input,
 /// another cosigner's signature may already be there: that does not count).
 pub fn sign_with(psbt: &mut Psbt, wallet: &Wallet, multisig: &[(String, MultisigWallet)]) -> Result<usize> {
-    let review = review_with(psbt, wallet, multisig)?;
+    sign_inner(psbt, wallet, multisig, None)
+}
+
+/// [`sign_with`], knowing what silent payments the transaction spends and pays (a PSBT of version 2): an input
+/// that spends one to this wallet is signed with its own key (BIP 376), as a taproot key-path spend.
+fn sign_inner(psbt: &mut Psbt, wallet: &Wallet, multisig: &[(String, MultisigWallet)], silent: Option<&Extras>) -> Result<usize> {
+    let review = review_inner(psbt, wallet, multisig, silent)?;
     if review.own_inputs == 0 {
         return Err(Error::Psbt(format!(
             "none of the inputs belong to the wallet with fingerprint {}: wrong seed or missing BIP39 passphrase?",
@@ -360,6 +556,9 @@ pub fn sign_with(psbt: &mut Psbt, wallet: &Wallet, multisig: &[(String, Multisig
     }
     if let Err((_, errors)) = psbt.sign(wallet.master(), wallet.secp()) {
         return Err(Error::Psbt(format!("signing failed: {errors:?}")));
+    }
+    if let Some(silent) = silent {
+        sign_silent_spends(psbt, silent)?;
     }
     let mut signed = 0;
     for input in review.inputs.iter().filter(|i| i.path.is_some()) {
@@ -378,8 +577,34 @@ pub fn sign_with(psbt: &mut Psbt, wallet: &Wallet, multisig: &[(String, Multisig
 
 // ---------------------------------------------------------------------------
 
+/// Signs the inputs that spend silent payments to this wallet: a BIP 340 signature with the key of the output
+/// (BIP 376), over the transaction's taproot signature hash (SIGHASH_DEFAULT, or ALL if the PSBT asks for it).
+fn sign_silent_spends(psbt: &mut Psbt, silent: &Extras) -> Result<()> {
+    let secp = Secp256k1::new();
+    let prevouts = (0..psbt.inputs.len()).map(|i| input_txout(psbt, i)).collect::<Result<Vec<_>>>()?;
+    for (i, spend) in silent.spends.iter().enumerate() {
+        let Some(spend) = spend else { continue };
+        let sighash_type = match psbt.inputs[i].sighash_type {
+            None => TapSighashType::Default,
+            Some(t) => t.taproot_hash_ty().map_err(|_| Error::Psbt(format!("input #{i} asks for an invalid signature-hash type")))?,
+        };
+        let hash = SighashCache::new(&psbt.unsigned_tx)
+            .taproot_key_spend_signature_hash(i, &Prevouts::All(&prevouts), sighash_type)
+            .map_err(|e| Error::Psbt(format!("input #{i}: {e}")))?;
+        let message = Message::from_digest(hash.to_byte_array());
+        let keypair = Keypair::from_secret_key(&secp, &spend.key);
+        let mut aux = [0u8; 32];
+        crate::entropy::random_bytes(&mut aux)?;
+        let signature = secp.sign_schnorr_with_aux_rand(&message, &keypair, &aux);
+        secp.verify_schnorr(&signature, &message, &keypair.x_only_public_key().0)
+            .map_err(|_| Error::Internal(format!("input #{i}: the signature does not check out")))?;
+        psbt.inputs[i].tap_key_sig = Some(bitcoin::taproot::Signature { signature, sighash_type });
+    }
+    Ok(())
+}
+
 /// The previous output an input spends, cross-checked when both forms exist.
-fn input_txout(psbt: &Psbt, i: usize) -> Result<TxOut> {
+pub(crate) fn input_txout(psbt: &Psbt, i: usize) -> Result<TxOut> {
     let prevout = psbt.unsigned_tx.input[i].previous_output;
     let inp = &psbt.inputs[i];
     if let Some(prev_tx) = &inp.non_witness_utxo {
@@ -432,7 +657,7 @@ fn describe_script(out: &TxOut, network: Network) -> String {
     }
 }
 
-enum Ownership {
+pub(crate) enum Ownership {
     /// The PSBT does not say this belongs to our seed.
     NotClaimed,
     /// It says so, and we re-derived the same script from our seed.
@@ -444,15 +669,15 @@ enum Ownership {
     Unverified,
 }
 
-struct Owned {
-    path: DerivationPath,
+pub(crate) struct Owned {
+    pub(crate) path: DerivationPath,
     /// 0 = receive chain, 1 = change chain.
     chain: u32,
     /// The key that signs into partial_sigs (None for a taproot key-path input).
     key: Option<secp256k1::PublicKey>,
 }
 
-struct OwnedMultisig {
+pub(crate) struct OwnedMultisig {
     path: DerivationPath,
     chain: u32,
     index: u32,
@@ -462,14 +687,14 @@ struct OwnedMultisig {
 }
 
 /// `purpose' / coin' / account' / chain / index`
-struct PathShape {
-    script: ScriptType,
+pub(crate) struct PathShape {
+    pub(crate) script: ScriptType,
     coin: u32,
     chain: u32,
 }
 
 impl PathShape {
-    fn parse(path: &DerivationPath) -> Option<Self> {
+    pub(crate) fn parse(path: &DerivationPath) -> Option<Self> {
         let c: &[ChildNumber] = path.as_ref();
         if c.len() != 5 {
             return None;
@@ -497,7 +722,7 @@ impl PathShape {
 /// Decide whether `txout` really belongs to this wallet, by re-deriving the
 /// key at the claimed path and rebuilding the script from it.
 #[allow(clippy::too_many_arguments)]
-fn ownership(
+pub(crate) fn ownership(
     wallet: &Wallet,
     txout: &TxOut,
     ecdsa: &BTreeMap<secp256k1::PublicKey, KeySource>,
@@ -608,9 +833,14 @@ pub fn ur_frames(psbt: &Psbt) -> Result<Vec<String>> {
 
 /// Like [`ur_frames`] with a custom fragment size.
 pub fn ur_frames_with(psbt: &Psbt, max_fragment_len: usize) -> Result<Vec<String>> {
+    ur_frames_of(&psbt.serialize(), max_fragment_len)
+}
+
+/// The animated QR code of a PSBT's bytes (of any version).
+fn ur_frames_of(psbt: &[u8], max_fragment_len: usize) -> Result<Vec<String>> {
     let ur_err = |e: ur::ur::Error| Error::Psbt(format!("cannot build the QR frames: {e:?}"));
     // The payload of a `crypto-psbt` is the PSBT as a CBOR byte string (the tag is implied by the type).
-    let payload = cbor_byte_string(&psbt.serialize());
+    let payload = cbor_byte_string(psbt);
     let mut encoder = ur::Encoder::new(&payload, max_fragment_len, UR_PSBT_TYPE).map_err(ur_err)?;
     let count = encoder.fragment_count();
     if count == 1 {
@@ -658,6 +888,11 @@ fn psbt_from_ur_payload(payload: &[u8]) -> Result<Psbt> {
     Psbt::deserialize(bytes).map_err(|e| Error::Psbt(format!("invalid PSBT inside the QR code: {e}")))
 }
 
+fn request_from_ur_payload(payload: &[u8]) -> Result<Request> {
+    let bytes = cbor_byte_string_content(payload)?;
+    Request::from_bytes(bytes).map_err(|e| Error::Psbt(format!("inside the QR code: {e}")))
+}
+
 /// What happened when one more QR code was scanned.
 #[derive(Debug)]
 pub enum ScanUpdate {
@@ -666,7 +901,7 @@ pub enum ScanUpdate {
     /// One more piece of an animated QR code: `have` of `total` pieces are known.
     Progress { have: usize, total: usize },
     /// The whole transaction has been received.
-    Done(Psbt),
+    Done(Box<Request>),
 }
 
 /// Collects the QR codes of a transaction shown by another wallet (Sparrow, ...) one at
@@ -694,8 +929,8 @@ impl PsbtScanner {
         if crate::bbqr::is_bbqr(text) {
             use crate::bbqr::BbqrUpdate;
             return match self.bbqr.add(text) {
-                BbqrUpdate::Done { file_type: 'P', data } => match decode(&data) {
-                    Ok(psbt) => ScanUpdate::Done(psbt),
+                BbqrUpdate::Done { file_type: 'P', data } => match Request::decode(&data) {
+                    Ok(request) => ScanUpdate::Done(Box::new(request)),
                     Err(e) => ScanUpdate::Ignored(e.to_string()),
                 },
                 BbqrUpdate::Done { file_type: 'T', .. } => {
@@ -706,8 +941,8 @@ impl PsbtScanner {
                 BbqrUpdate::Ignored(why) => ScanUpdate::Ignored(format!("this BBQr code cannot be read: {why}")),
             };
         }
-        match decode(text.as_bytes()) {
-            Ok(psbt) => ScanUpdate::Done(psbt),
+        match Request::decode(text.as_bytes()) {
+            Ok(request) => ScanUpdate::Done(Box::new(request)),
             Err(_) => ScanUpdate::Ignored("this QR code is not a transaction".into()),
         }
     }
@@ -717,8 +952,8 @@ impl PsbtScanner {
         if ur_type != UR_PSBT_TYPE && ur_type != "psbt" {
             return ScanUpdate::Ignored(format!("this QR code holds a \"{ur_type}\", not a transaction"));
         }
-        let finished = |payload: Vec<u8>| match psbt_from_ur_payload(&payload) {
-            Ok(psbt) => ScanUpdate::Done(psbt),
+        let finished = |payload: Vec<u8>| match request_from_ur_payload(&payload) {
+            Ok(request) => ScanUpdate::Done(Box::new(request)),
             Err(e) => ScanUpdate::Ignored(e.to_string()),
         };
         match ur::ur::decode(text) {
@@ -812,6 +1047,11 @@ pub enum NetworkHint {
 /// carry, m/84'/0'/... being mainnet and m/84'/1'/... a test network) and at the version of those
 /// wallet keys (xpub or tpub). The command-line program and the phone app both find the network this way.
 pub fn network_hint(psbt: &Psbt) -> NetworkHint {
+    network_hint_with(psbt, &[])
+}
+
+/// [`network_hint`], with the coin types (`0x80000000` and up, hardened) of more key paths.
+fn network_hint_with(psbt: &Psbt, more_coins: &[u32]) -> NetworkHint {
     let coin = |path: &DerivationPath| -> Option<bool> {
         let steps: &[ChildNumber] = path.as_ref();
         match steps.get(1) {
@@ -830,6 +1070,11 @@ pub fn network_hint(psbt: &Psbt) -> NetworkHint {
         .flat_map(|o| o.bip32_derivation.values().map(|(_, p)| p).chain(o.tap_key_origins.values().map(|(_, (_, p))| p)));
     let mut mainnet: Vec<bool> = input_paths.chain(output_paths).chain(psbt.xpub.values().map(|(_, p)| p)).filter_map(coin).collect();
     mainnet.extend(psbt.xpub.keys().map(|xpub| xpub.network == bitcoin::NetworkKind::Main));
+    mainnet.extend(more_coins.iter().filter_map(|c| match *c {
+        0x8000_0000 => Some(true),
+        0x8000_0001 => Some(false),
+        _ => None,
+    }));
     match (mainnet.iter().any(|&m| m), mainnet.iter().any(|&m| !m)) {
         (true, false) => NetworkHint::Mainnet,
         (false, true) => NetworkHint::TestNetwork,
@@ -983,7 +1228,7 @@ mod tests {
         let funding = psbt.inputs[0].witness_utxo.clone().unwrap();
         let mut cache = SighashCache::new(&psbt.unsigned_tx);
         let sighash = cache
-            .taproot_key_spend_signature_hash(0, &Prevouts::All(&[funding.clone()]), TapSighashType::Default)
+            .taproot_key_spend_signature_hash(0, &Prevouts::All(std::slice::from_ref(&funding)), TapSighashType::Default)
             .unwrap();
         let msg = Message::from_digest(sighash.to_byte_array());
         let sig = psbt.inputs[0].tap_key_sig.unwrap();
@@ -1154,7 +1399,7 @@ mod tests {
             }
         }
         assert!(seen_progress);
-        assert_eq!(done.unwrap(), psbt);
+        assert_eq!(done.unwrap().psbt(), &psbt);
     }
 
     #[test]
@@ -1174,7 +1419,7 @@ mod tests {
             ScanUpdate::Done(p) => Some(p),
             _ => None,
         });
-        assert_eq!(done.unwrap(), second);
+        assert_eq!(done.unwrap().psbt(), &second);
     }
 
     #[test]
@@ -1183,7 +1428,7 @@ mod tests {
         let psbt = build(&w, ScriptType::Wpkh);
         let mut scanner = PsbtScanner::new();
         match scanner.add(&encode_base64(&psbt)) {
-            ScanUpdate::Done(p) => assert_eq!(p, psbt),
+            ScanUpdate::Done(p) => assert_eq!(p.psbt(), &psbt),
             other => panic!("{other:?}"),
         }
         let single = ur_frames_with(&psbt, 10_000).unwrap();
@@ -1204,7 +1449,7 @@ mod tests {
         assert!(matches!(scanner.add(&parts[2]), ScanUpdate::Progress { have: 1, total: 3 }));
         assert!(matches!(scanner.add(&parts[0]), ScanUpdate::Progress { have: 2, total: 3 }));
         match scanner.add(&parts[1]) {
-            ScanUpdate::Done(p) => assert_eq!(p, psbt),
+            ScanUpdate::Done(p) => assert_eq!(p.psbt(), &psbt),
             other => panic!("{other:?}"),
         }
         // a finished transaction (type T) is not something to sign
@@ -1345,7 +1590,7 @@ mod tests {
             .map(|k| PublicKey::new(secp256k1::SecretKey::from_slice(k).unwrap().public_key(&secp)))
             .collect();
         keys.push(PublicKey::new(a.public_key_at(&"m/48'/1'/0'/2'/1/0".parse().unwrap()).unwrap()));
-        keys.sort_by(|x, y| x.inner.serialize().cmp(&y.inner.serialize()));
+        keys.sort_by_key(|k| k.inner.serialize());
         let mut builder = bitcoin::script::Builder::new().push_int(2);
         for key in &keys {
             builder = builder.push_key(key);

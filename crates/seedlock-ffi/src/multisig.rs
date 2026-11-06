@@ -534,7 +534,7 @@ pub(crate) mod tests {
                 }
             }
         }
-        Arc::new(Transaction::new(psbt))
+        Arc::new(Transaction::new(psbt.into()))
     }
 
     #[test]
@@ -575,7 +575,7 @@ pub(crate) mod tests {
             signed.multisig.as_deref(),
             Some("Multisig \"vault\": it now has 1 of the 2 signatures it needs. 1 more cosigner must sign it too before Sparrow can finalize it.")
         );
-        assert!(tx.psbt.inputs[0].partial_sigs.is_empty(), "the transaction given stays as it was");
+        assert!(tx.request.psbt().inputs[0].partial_sigs.is_empty(), "the transaction given stays as it was");
 
         // then the second cosigner: its signature is the last one needed
         let b = wallet(1, Net::Testnet);
@@ -589,7 +589,7 @@ pub(crate) mod tests {
             )
         );
         let both = b.sign(signed.transaction.clone(), registered.clone()).unwrap();
-        assert_eq!(both.transaction.psbt.inputs[0].partial_sigs.len(), 2);
+        assert_eq!(both.transaction.request.psbt().inputs[0].partial_sigs.len(), 2);
         assert_eq!(both.multisig.as_deref(), Some("Multisig \"vault\": it now has the 2 signatures it needs. Sparrow can finalize and broadcast it."));
         // a seed that is not a cosigner has nothing to sign
         let stranger = Seed::from_words("zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo wrong".into()).unwrap().wallet(Vec::new(), Net::Testnet).unwrap();

@@ -1,11 +1,14 @@
 //! End-to-end tests: run the real `seedlock` binary with piped input.
 
 use seedlock_core::bitcoin::bip32::DerivationPath;
+use seedlock_core::bitcoin::consensus;
 use seedlock_core::bitcoin::hashes::Hash;
 use seedlock_core::bitcoin::psbt::Psbt;
+use seedlock_core::bitcoin::secp256k1::{PublicKey, Secp256k1, SecretKey};
 use seedlock_core::bitcoin::{
     absolute, transaction, Address, Amount, OutPoint, ScriptBuf, Sequence, Transaction, TxIn, TxOut, Txid, Witness,
 };
+use seedlock_core::silent::{self, SilentKeys};
 use seedlock_core::{backup, mnemonic, multisig::MultisigWallet, psbt as core_psbt, wallet::{ScriptType, Wallet}, Network};
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -450,8 +453,9 @@ fn menu_5_shows_the_wallet_for_sparrow_as_a_qr_code_that_names_the_keystore() {
     std::fs::create_dir_all(&backups).unwrap();
     make_backup(&backups, WORDS, "my wallet.seedlock");
     let net = offline_net("menu5-net");
-    // menu 5, the only backup (Enter), no passphrase, its password, mainnet (no transaction tells), then quit
-    let o = run_env(Some(&dir), &[("SEEDLOCK_TEST_NET_DIR", s(&net))], &[], &format!("5\n\nn\n{PW}\nm\nq\n"));
+    // menu 5, the only backup (Enter), no passphrase, its password, mainnet (no transaction tells), the usual
+    // wallet (Enter), then quit
+    let o = run_env(Some(&dir), &[("SEEDLOCK_TEST_NET_DIR", s(&net))], &[], &format!("5\n\nn\n{PW}\nm\n\nq\n"));
     assert!(o.status.success(), "{}", err(&o));
     let shown = out(&o);
     assert!(shown.contains("names its keystore \"my wallet\"") && shown.contains("type \"my wallet\" there too"), "{shown}");
@@ -460,6 +464,47 @@ fn menu_5_shows_the_wallet_for_sparrow_as_a_qr_code_that_names_the_keystore() {
     assert_eq!(png_qr_text(&backups.join("my wallet-for-sparrow-qr.png")), expected, "the picture is Sparrow's UR crypto-output");
     let saved = std::fs::read_to_string(backups.join("my wallet-for-sparrow.txt")).unwrap();
     assert!(saved.contains(&format!("As a QR code (UR crypto-output):\n  {expected}")), "{saved}");
+}
+
+#[test]
+fn menu_5_shows_the_silent_payment_wallet_for_sparrow() {
+    let dir = tmp("menu5-sp");
+    let backups = dir.join("seedlocker backups");
+    std::fs::create_dir_all(&backups).unwrap();
+    make_backup(&backups, WORDS, "my wallet.seedlock");
+    let net = offline_net("menu5-sp-net");
+    // as above, but the silent payment wallet (2)
+    let o = run_env(Some(&dir), &[("SEEDLOCK_TEST_NET_DIR", s(&net))], &[], &format!("5\n\nn\n{PW}\nm\n2\nq\n"));
+    assert!(o.status.success(), "{}", err(&o));
+    let keys = SilentKeys::new(&wallet(WORDS), 0).unwrap();
+    let descriptor = keys.descriptor().unwrap();
+    let shown = out(&o);
+    assert!(shown.contains(&keys.address()) && shown.contains(&descriptor), "{shown}");
+    assert!(shown.contains("Derivation         : m/352'/0'/0'") && shown.contains(&format!("spscan             : {}", keys.spscan())), "{shown}");
+    assert!(descriptor.starts_with("sp([73c5da0a/352h/0h/0h]spscan1q"), "{descriptor}");
+    assert!(shown.contains("type \"my wallet\"") && shown.contains("Label field, \"my wallet\""), "{shown}");
+    assert_eq!(png_qr_text(&backups.join("my wallet-silent-payments-for-sparrow-qr.png")), descriptor);
+    let saved = std::fs::read_to_string(backups.join("my wallet-silent-payments-for-sparrow.txt")).unwrap();
+    assert!(saved.contains(&descriptor) && saved.contains(&keys.address()), "{saved}");
+}
+
+#[test]
+fn info_shows_the_silent_payment_wallet() {
+    let dir = tmp("info-sp");
+    let file = make_backup(&dir, WORDS, "w.seedlock");
+    let o = run(&["info", s(&file), "--silent-payments"], &format!("{PW}\n"));
+    assert!(o.status.success(), "{}", err(&o));
+    let keys = SilentKeys::new(&wallet(WORDS), 0).unwrap();
+    assert!(out(&o).contains(&keys.address()) && out(&o).contains(&keys.descriptor().unwrap()), "{}", out(&o));
+    assert!(err(&o).contains("Keep it private"), "{}", err(&o));
+    // on a test network: tsp1q..., tspscan1q...
+    let o = run(&["info", s(&file), "--silent-payments", "--network", "signet"], &format!("{PW}\n"));
+    let test_keys = SilentKeys::new(&Wallet::new(&mnemonic::parse(WORDS).unwrap(), "", Network::Signet).unwrap(), 0).unwrap();
+    assert!(out(&o).contains(&test_keys.address()) && test_keys.address().starts_with("tsp1q"), "{}", out(&o));
+    assert!(out(&o).contains("[73c5da0a/352h/1h/0h]tspscan1q"), "{}", out(&o));
+    // another account is refused: SeedLock signs for account 0 only
+    let o = run(&["info", s(&file), "--silent-payments", "--account", "1"], &format!("{PW}\n"));
+    assert!(!o.status.success() && err(&o).contains("account 0 only"), "{}", err(&o));
 }
 
 #[test]
@@ -570,6 +615,82 @@ fn the_network_is_found_from_the_transaction() {
     std::fs::write(&bare, core_psbt::encode_base64(&bare_tx)).unwrap();
     let o = run(&["sign", s(&backup), "--psbt", s(&bare), "--yes"], &format!("{PW}\n"));
     assert!(!o.status.success() && err(&o).contains("no key paths") && err(&o).contains("--network"), "{}", err(&o));
+}
+
+/// A PSBT of version 2, as Sparrow sends one to pay a silent payment address, written out field by field: an
+/// input of m/84'/0'/0'/0/0 (100_000 sat), 60_000 to the silent payment address (scan, spend), and 39_000 back to
+/// the wallet's own silent payment change (label 0); its outputs without scripts, which the signer works out.
+fn silent_payment_psbt(w: &Wallet, scan: &PublicKey, spend: &PublicKey) -> (Vec<u8>, OutPoint, PublicKey) {
+    fn map(out: &mut Vec<u8>, fields: &[(u8, Vec<u8>, Vec<u8>)]) {
+        for (t, data, value) in fields {
+            out.push(1 + data.len() as u8);
+            out.push(*t);
+            out.extend_from_slice(data);
+            out.push(value.len() as u8);
+            out.extend_from_slice(value);
+        }
+        out.push(0);
+    }
+    let path = DerivationPath::from_str("m/84'/0'/0'/0/0").unwrap();
+    let a = w.public_key_at(&path).unwrap();
+    let utxo = TxOut { value: Amount::from_sat(100_000), script_pubkey: w.script_pubkey(ScriptType::Wpkh, &a) };
+    let outpoint = OutPoint { txid: Txid::from_byte_array([0xaa; 32]), vout: 1 };
+    let mut origin = w.fingerprint().to_bytes().to_vec();
+    for step in &path {
+        origin.extend_from_slice(&u32::from(*step).to_le_bytes());
+    }
+    let own = SilentKeys::new(w, 0).unwrap();
+    let info = |scan: &PublicKey, spend: &PublicKey| [scan.serialize(), spend.serialize()].concat();
+    let mut bytes = b"psbt\xff".to_vec();
+    let le = |n: u32| n.to_le_bytes().to_vec();
+    map(&mut bytes, &[(0x02, vec![], le(2)), (0x03, vec![], le(0)), (0x04, vec![], vec![1]), (0x05, vec![], vec![2]), (0x06, vec![], vec![3]), (0xfb, vec![], le(2))]);
+    map(
+        &mut bytes,
+        &[
+            (0x01, vec![], consensus::serialize(&utxo)),
+            (0x06, a.serialize().to_vec(), origin),
+            (0x0e, vec![], outpoint.txid.to_byte_array().to_vec()),
+            (0x0f, vec![], le(outpoint.vout)),
+            (0x10, vec![], le(0xffff_fffd)),
+        ],
+    );
+    map(&mut bytes, &[(0x03, vec![], 60_000u64.to_le_bytes().to_vec()), (0x09, vec![], info(scan, spend))]);
+    let change = own.labeled_spend(0).unwrap();
+    map(&mut bytes, &[(0x03, vec![], 39_000u64.to_le_bytes().to_vec()), (0x09, vec![], info(&own.scan_public(), &change)), (0x0a, vec![], le(0))]);
+    (bytes, outpoint, a)
+}
+
+#[test]
+fn signs_a_payment_to_a_silent_payment_address() {
+    let dir = tmp("sign-sp");
+    let backup = make_backup(&dir, WORDS, "w.seedlock");
+    let secp = Secp256k1::new();
+    let (b_scan, b_spend) = (SecretKey::from_slice(&[0x11; 32]).unwrap(), SecretKey::from_slice(&[0x22; 32]).unwrap());
+    let (scan, spend) = (b_scan.public_key(&secp), b_spend.public_key(&secp));
+    let (bytes, outpoint, a) = silent_payment_psbt(&wallet(WORDS), &scan, &spend);
+    let psbt_file = dir.join("sp.psbt");
+    std::fs::write(&psbt_file, &bytes).unwrap(); // binary, as Sparrow saves it
+
+    let o = run(&["sign", s(&backup), "--psbt", s(&psbt_file), "--yes"], &format!("{PW}\n"));
+    assert!(o.status.success(), "{}", err(&o));
+    let review = err(&o);
+    assert!(review.contains(&silent::encode_address(&scan, &spend, Network::Bitcoin)) && review.contains("SENT TO SOMEONE ELSE"), "{review}");
+    assert!(review.contains("change back to you, to your own silent payment address"), "{review}");
+    assert!(review.contains("(a silent payment: on the blockchain it is bc1p"), "{review}");
+    assert!(review.contains("Leaving your wallet: 0.00060000 BTC") && review.contains("Fee      : 0.00001000 BTC"), "{review}");
+
+    // the signed PSBT goes back as version 2, with the output the receiver finds, and the signature
+    let signed = core_psbt::Request::decode(&std::fs::read(dir.join("sp.signed.psbt")).unwrap()).unwrap();
+    assert_eq!(signed.version(), 2);
+    assert!(!signed.psbt().inputs[0].partial_sigs.is_empty());
+    let smallest: [u8; 36] = consensus::serialize(&outpoint).try_into().unwrap();
+    let input_hash = silent::input_hash(&smallest, &a).unwrap();
+    let shared = silent::shared_secret(&input_hash, &silent::ecdh_share(&b_scan, &a).unwrap()).unwrap();
+    let found = silent::output_key(&shared, &spend, 0).unwrap();
+    assert_eq!(signed.psbt().unsigned_tx.output[0].script_pubkey.as_bytes()[2..], found.serialize());
+    assert!(review.contains(&Address::from_script(&signed.psbt().unsigned_tx.output[0].script_pubkey, Network::Bitcoin).unwrap().to_string()));
+    // stdout carries the same PSBT as base64
+    assert_eq!(core_psbt::Request::decode(out(&o).trim().as_bytes()).unwrap().serialize(), signed.serialize());
 }
 
 const THIRD_WORDS: &str = "letter advice cage absurd amount doctor acoustic avoid letter advice cage above";

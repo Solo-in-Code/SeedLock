@@ -126,6 +126,9 @@ pub struct InfoArgs {
     /// Ask for a BIP39 passphrase (the "25th word")
     #[arg(long)]
     pub passphrase: bool,
+    /// Show the silent payment address and the watch-only silent payment wallet for Sparrow instead
+    #[arg(long)]
+    pub silent_payments: bool,
 }
 
 #[derive(Args)]

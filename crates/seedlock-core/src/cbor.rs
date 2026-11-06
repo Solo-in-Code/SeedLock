@@ -217,7 +217,7 @@ mod tests {
         assert!(decode(&[0x43, 1, 2]).is_err(), "cut short");
         assert!(decode(&[0x01, 0x02]).is_err(), "data after the end");
         assert!(decode(&[0x9b, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff]).is_err(), "a huge array");
-        let deep: Vec<u8> = std::iter::repeat(0x81).take(40).chain([0x00]).collect();
+        let deep: Vec<u8> = std::iter::repeat_n(0x81, 40).chain([0x00]).collect();
         assert!(decode(&deep).is_err(), "nested too deeply");
     }
 }

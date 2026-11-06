@@ -15,8 +15,7 @@
 use crate::children::Running;
 use crate::ui::{fail, Res};
 use seedlock_core::backup;
-use seedlock_core::bitcoin::Psbt;
-use seedlock_core::psbt::{PsbtScanner, ScanUpdate};
+use seedlock_core::psbt::{PsbtScanner, Request, ScanUpdate};
 use std::ffi::{OsStr, OsString};
 use std::io::{BufRead, BufReader, ErrorKind, IsTerminal, Read, Write};
 use std::path::Path;
@@ -242,12 +241,12 @@ impl Status {
 }
 
 fn bar(have: usize, total: usize) -> String {
-    let filled = if total == 0 { 0 } else { (have * 20 / total).min(20) };
+    let filled = (have * 20).checked_div(total).unwrap_or(0).min(20);
     format!("[{}{}]", "#".repeat(filled), "-".repeat(20 - filled))
 }
 
 /// Read pictures until a whole transaction has been collected.
-pub fn scan_psbt(source: &mut dyn FrameSource, give_up_after: Duration) -> Res<Psbt> {
+pub fn scan_psbt(source: &mut dyn FrameSource, give_up_after: Duration) -> Res<Request> {
     let started = Instant::now();
     let mut scanner = PsbtScanner::new();
     let mut status = Status::new();
@@ -280,11 +279,11 @@ pub fn scan_psbt(source: &mut dyn FrameSource, give_up_after: Duration) -> Res<P
         source.found(&quads, None);
         for code in found {
             match scanner.add(&code.text) {
-                ScanUpdate::Done(psbt) => {
+                ScanUpdate::Done(request) => {
                     source.found(&quads, Some((1, 1)));
                     status.show("Received the whole transaction.");
                     status.finish_line();
-                    return Ok(psbt);
+                    return Ok(*request);
                 }
                 ScanUpdate::Progress { have, total } => {
                     source.found(&quads, Some((have, total)));
@@ -751,7 +750,7 @@ mod tests {
     use super::*;
     use qrcode::{types::{Color, Version}, EcLevel, QrCode};
     // (reading QR codes in camera pictures is tested in the seedlock-qr crate)
-    use seedlock_core::bitcoin::{absolute::LockTime, transaction::Version as TxVersion, Amount, OutPoint, ScriptBuf, Sequence, Transaction, TxIn, TxOut, Witness};
+    use seedlock_core::bitcoin::{absolute::LockTime, transaction::Version as TxVersion, Amount, OutPoint, Psbt, ScriptBuf, Sequence, Transaction, TxIn, TxOut, Witness};
 
     /// A grey picture like a webcam sees a screen: the code somewhere in the picture, a
     /// grey surrounding, soft focus (`blur` passes of a 3x3 average) and sensor noise.
@@ -858,7 +857,7 @@ mod tests {
             .map(|(i, f)| camera_picture(&f.to_uppercase(), 640, 480, 6, 1, i as u64))
             .collect();
         let got = scan_psbt(&mut Pictures(pictures.into_iter()), Duration::from_secs(60)).unwrap();
-        assert_eq!(got, psbt);
+        assert_eq!(got.psbt(), &psbt);
     }
 
     #[test]
@@ -962,7 +961,7 @@ mod tests {
         assert_eq!((camera.width, camera.height), (1280, 720));
         assert!(camera.preview_note.is_none(), "no preview was asked for");
         let got = scan_psbt(&mut camera, Duration::from_secs(60)).unwrap();
-        assert_eq!(got, psbt);
+        assert_eq!(got.psbt(), &psbt);
         drop(camera);
         std::fs::remove_dir_all(&dir).ok();
     }
@@ -976,7 +975,7 @@ mod tests {
         assert!(camera.preview_note.is_none(), "{:?}", camera.preview_note);
         // scanning tells the window what it found; the window keeps getting pictures meanwhile
         let got = scan_psbt(&mut camera, Duration::from_secs(60)).unwrap();
-        assert_eq!(got, psbt);
+        assert_eq!(got.psbt(), &psbt);
         thread::sleep(Duration::from_millis(300));
         drop(camera); // closes the window
         let args = std::fs::read_to_string(dir.join("ffplay.args")).unwrap();
@@ -993,7 +992,7 @@ mod tests {
         // the last pictures carry the progress bar: a black strip with white in it along the bottom
         let last = &received[(whole - 1) * picture..whole * picture];
         let bottom = &last[(720 - 3) * 1280..(720 - 2) * 1280];
-        assert!(bottom.iter().any(|&v| v == 255) && bottom.iter().any(|&v| v < 60), "no progress bar in the last picture");
+        assert!(bottom.contains(&255) && bottom.iter().any(|&v| v < 60), "no progress bar in the last picture");
         std::fs::remove_dir_all(&dir).ok();
     }
 
@@ -1004,18 +1003,18 @@ mod tests {
         let (ffmpeg, ffplay_path, psbt, dir) = fake_programs("nowindow", failing);
         let mut camera = Camera::open_full(ffmpeg.as_os_str(), 0, Some((ffplay_path.as_os_str(), false))).unwrap();
         assert!(camera.preview_note.as_deref().unwrap_or("").contains("No available video device"), "{:?}", camera.preview_note);
-        assert_eq!(scan_psbt(&mut camera, Duration::from_secs(60)).unwrap(), psbt);
+        assert_eq!(scan_psbt(&mut camera, Duration::from_secs(60)).unwrap().psbt(), &psbt);
         drop(camera);
         let mut camera = Camera::open_full(ffmpeg.as_os_str(), 0, Some((OsStr::new("/nonexistent/ffplay"), false))).unwrap();
         assert!(camera.preview_note.as_deref().unwrap_or("").contains("ffplay"), "{:?}", camera.preview_note);
-        assert_eq!(scan_psbt(&mut camera, Duration::from_secs(60)).unwrap(), psbt);
+        assert_eq!(scan_psbt(&mut camera, Duration::from_secs(60)).unwrap().psbt(), &psbt);
         drop(camera);
         // without a graphical screen the window is not even tried
         let mut camera = Camera::open_full(ffmpeg.as_os_str(), 0, Some((ffplay_path.as_os_str(), true))).unwrap();
         if std::env::var_os("DISPLAY").is_none() && std::env::var_os("WAYLAND_DISPLAY").is_none() {
             assert!(camera.preview_note.as_deref().unwrap_or("").contains("graphical screen"), "{:?}", camera.preview_note);
         }
-        assert_eq!(scan_psbt(&mut camera, Duration::from_secs(60)).unwrap(), psbt);
+        assert_eq!(scan_psbt(&mut camera, Duration::from_secs(60)).unwrap().psbt(), &psbt);
         drop(camera);
         std::fs::remove_dir_all(&dir).ok();
     }

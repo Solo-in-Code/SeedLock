@@ -157,6 +157,12 @@ impl Wallet {
         Ok(Xpub::from_priv(&self.secp, &self.derive(path)?))
     }
 
+    /// Private key at an arbitrary derivation path from the master key (for silent payments, whose
+    /// computations need the keys themselves, not only signatures).
+    pub(crate) fn private_key_at(&self, path: &DerivationPath) -> Result<secp256k1::SecretKey> {
+        Ok(self.derive(path)?.private_key)
+    }
+
     /// Public key at an arbitrary derivation path from the master key.
     pub fn public_key_at(&self, path: &DerivationPath) -> Result<secp256k1::PublicKey> {
         let xpriv = self.derive(path)?;

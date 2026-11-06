@@ -7,6 +7,7 @@ use crate::transaction::Transaction;
 use seedlock_core::bitcoin::Network;
 use seedlock_core::multisig::keystore_label;
 use seedlock_core::psbt::{self, OutputKind};
+use seedlock_core::silent::SilentKeys;
 use seedlock_core::wallet::{descriptor_checksum, path_to_display, ScriptType, Wallet as CoreWallet};
 use std::sync::Arc;
 
@@ -130,6 +131,32 @@ pub struct SparrowWallet {
     pub other_types: Vec<OtherAddressType>,
 }
 
+/// A seed's silent payment wallet laid out for Sparrow (version 2.5 or later), as the command-line program's
+/// menu 5 shows it: the address to give to payers, and the watch-only wallet that finds the payments to it.
+#[derive(uniffi::Record, Clone, Debug, PartialEq, Eq)]
+pub struct SilentPaymentWallet {
+    pub fingerprint: String,
+    /// "mainnet (real bitcoin)", "a test network (testnet or signet)" or "regtest".
+    pub network: String,
+    /// Whether a BIP39 passphrase was used (a different wallet from the one without it).
+    pub passphrase_used: bool,
+    /// The silent payment address to give to payers, as often as they like: `sp1q...` (`tsp1q...` on the test
+    /// networks).
+    pub address: String,
+    /// The watch-only wallet for Sparrow in one line (BIP 392, `sp(...)`), for File > Import Wallet > Output
+    /// Descriptor; also the text of its QR code. It finds the payments to the address, but cannot spend them.
+    pub descriptor: String,
+    /// The derivation, written the way Sparrow wants it (m/352'/0'/0').
+    pub derivation: String,
+    /// The key for Sparrow's field of the same name: the scan private key and the spend public key.
+    pub spscan: String,
+    /// That field's name: "spscan", or "tspscan" on the test networks.
+    pub spscan_name: String,
+    /// The backup's name cut to the 16 characters Sparrow allows, for the keystore's Label in Sparrow: Sparrow takes
+    /// no name from a silent payment wallet's descriptor, and calls its keystore "Keystore 1".
+    pub label: String,
+}
+
 /// One input of a transaction, as shown before signing.
 #[derive(uniffi::Record, Clone, Debug, PartialEq, Eq)]
 pub struct InputLine {
@@ -153,6 +180,9 @@ pub struct OutputLine {
     pub external: bool,
     /// What it is: sent to someone else, or change back to this wallet (verified from the seed).
     pub note: String,
+    /// For a payment to a silent payment address (`address` is then `sp1q...`): the address the output has on
+    /// the blockchain (`bc1p...`), which only its receiver can tell is theirs.
+    pub silent_payment: Option<String>,
 }
 
 /// Everything to look at before agreeing to sign.
@@ -205,6 +235,15 @@ impl Wallet {
     }
 }
 
+/// The network as the wallet for Sparrow describes it.
+fn network_words(network: Network) -> &'static str {
+    match network {
+        Network::Bitcoin => "mainnet (real bitcoin)",
+        Network::Regtest => "regtest",
+        _ => "a test network (testnet or signet)",
+    }
+}
+
 fn btc(amount: seedlock_core::bitcoin::Amount) -> String {
     psbt::format_btc(amount)
 }
@@ -231,11 +270,7 @@ impl Wallet {
         let body = script.wrap_descriptor(&format!("{}/<0;1>/*", wallet.xpub_with_origin(script, 0)?));
         let descriptor = format!("{body}#{}", descriptor_checksum(&body)?);
         let base = path_to_display(&wallet.account_path(script, 0)?);
-        let network = match wallet.network() {
-            Network::Bitcoin => "mainnet (real bitcoin)",
-            Network::Regtest => "regtest",
-            _ => "a test network (testnet or signet)",
-        };
+        let network = network_words(wallet.network());
         let first_addresses = (0..5)
             .map(|i| Ok(AddressLine { path: format!("{base}/0/{i}"), address: wallet.address(script, 0, false, i)?.to_string() }))
             .collect::<Result<Vec<_>>>()?;
@@ -265,12 +300,31 @@ impl Wallet {
         })
     }
 
+    /// The wallet's silent payment wallet laid out for Sparrow: the address to give to payers, and the watch-only
+    /// wallet that finds the payments to it (account 0, the one Sparrow uses and this app signs for). `name`: the
+    /// backup's name, for the keystore's label in Sparrow.
+    pub fn silent_payments(&self, name: String) -> Result<SilentPaymentWallet> {
+        let keys = SilentKeys::new(&self.inner, 0)?;
+        Ok(SilentPaymentWallet {
+            fingerprint: self.inner.fingerprint().to_string(),
+            network: network_words(self.inner.network()).to_string(),
+            passphrase_used: self.passphrase_used,
+            address: keys.address(),
+            descriptor: keys.descriptor()?,
+            derivation: path_to_display(keys.account_path()),
+            spscan: keys.spscan(),
+            spscan_name: if self.inner.network() == Network::Bitcoin { "spscan" } else { "tspscan" }.to_string(),
+            label: keystore_label(&name, self.inner.fingerprint()),
+        })
+    }
+
     /// Check a transaction against this wallet without signing it: every input and output, what is
     /// verified as this wallet's own, the fee and the warnings. `multisig`: the multisig wallets kept on
     /// this phone, whose inputs and change this seed can then check and sign as one of their cosigners.
-    /// An error says why it cannot be signed.
+    /// For a payment to a silent payment address, its outputs are worked out here (BIP 352). An error says
+    /// why it cannot be signed.
     pub fn review(&self, transaction: Arc<Transaction>, multisig: Vec<RegisteredMultisig>) -> Result<TxReview> {
-        let r = psbt::review_with(&transaction.psbt, &self.inner, &registered(&multisig)).map_err(for_the_phone)?;
+        let r = transaction.request.review(&self.inner, &registered(&multisig)).map_err(for_the_phone)?;
         let inputs = r
             .inputs
             .iter()
@@ -303,7 +357,13 @@ impl Wallet {
                     OutputKind::MultisigReceive { path, wallet } => {
                         format!("goes to the multisig wallet \"{wallet}\" (verified from all its cosigners' keys: {path})")
                     }
+                    OutputKind::SilentChange => "change back to you, to your own silent payment address (verified from your seed)".to_string(),
+                    OutputKind::SilentReceive { label: None } => "goes to your own silent payment address (verified from your seed)".to_string(),
+                    OutputKind::SilentReceive { label: Some(m) } => {
+                        format!("goes to your own silent payment address, label {m} (verified from your seed)")
+                    }
                 },
+                silent_payment: o.silent_payment.clone(),
             })
             .collect();
         Ok(TxReview {
@@ -325,12 +385,12 @@ impl Wallet {
     /// it was; the signed one is returned.
     pub fn sign(&self, transaction: Arc<Transaction>, multisig: Vec<RegisteredMultisig>) -> Result<Signed> {
         let registered = registered(&multisig);
-        let before = psbt::review_with(&transaction.psbt, &self.inner, &registered).map_err(for_the_phone)?;
-        let mut psbt = transaction.psbt.clone();
-        let count = psbt::sign_with(&mut psbt, &self.inner, &registered).map_err(for_the_phone)?;
+        let before = transaction.request.review(&self.inner, &registered).map_err(for_the_phone)?;
+        let mut request = transaction.request.clone();
+        let count = request.sign(&self.inner, &registered).map_err(for_the_phone)?;
         Ok(Signed {
             inputs: count as i32,
-            transaction: Arc::new(Transaction::new(psbt)),
+            transaction: Arc::new(Transaction::new(request)),
             multisig: before.multisig.as_ref().map(multisig_after),
         })
     }
@@ -400,6 +460,7 @@ mod tests {
     use seedlock_core::bitcoin::hashes::Hash;
     use seedlock_core::bitcoin::NetworkKind;
     use seedlock_core::cbor::{self, Value};
+    use seedlock_core::bitcoin::secp256k1;
     use seedlock_core::bitcoin::{absolute::LockTime, bip32::DerivationPath, transaction::Version, Amount, OutPoint, Psbt, ScriptBuf, Sequence, TxIn, TxOut, Txid, WPubkeyHash, Witness};
 
     const WORDS: &str = "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about";
@@ -429,7 +490,110 @@ mod tests {
         psbt.inputs[0].bip32_derivation.insert(key, source);
         let (key, source) = origin("m/84'/0'/0'/1/0");
         psbt.outputs[1].bip32_derivation.insert(key, source);
-        Arc::new(Transaction::new(psbt))
+        Arc::new(Transaction::new(psbt.into()))
+    }
+
+    /// A payment to a silent payment address as Sparrow sends it, a PSBT of version 2 written out field by field:
+    /// the wallet's first receive address (100 000 sat) pays 60 000 sat to the silent payment address
+    /// (`scan`, `spend`) and 39 000 sat back to the wallet's own silent payment change (label 0). The outputs come
+    /// without scripts: the signer works them out.
+    fn silent_payment(w: &CoreWallet, scan: &secp256k1::PublicKey, spend: &secp256k1::PublicKey) -> (Vec<u8>, OutPoint) {
+        fn map(out: &mut Vec<u8>, fields: &[(u8, Vec<u8>, Vec<u8>)]) {
+            for (t, data, value) in fields {
+                out.push(1 + data.len() as u8);
+                out.push(*t);
+                out.extend_from_slice(data);
+                out.push(value.len() as u8);
+                out.extend_from_slice(value);
+            }
+            out.push(0);
+        }
+        let path: DerivationPath = "m/84'/0'/0'/0/0".parse().unwrap();
+        let a = w.public_key_at(&path).unwrap();
+        let utxo = TxOut { value: Amount::from_sat(100_000), script_pubkey: w.address(ScriptType::Wpkh, 0, false, 0).unwrap().script_pubkey() };
+        let outpoint = OutPoint { txid: Txid::from_byte_array([7; 32]), vout: 1 };
+        let mut origin = w.fingerprint().to_bytes().to_vec();
+        for step in &path {
+            origin.extend_from_slice(&u32::from(*step).to_le_bytes());
+        }
+        let own = SilentKeys::new(w, 0).unwrap();
+        let info = |scan: &secp256k1::PublicKey, spend: &secp256k1::PublicKey| [scan.serialize(), spend.serialize()].concat();
+        let le = |n: u32| n.to_le_bytes().to_vec();
+        let mut bytes = b"psbt\xff".to_vec();
+        map(&mut bytes, &[(0x02, vec![], le(2)), (0x03, vec![], le(0)), (0x04, vec![], vec![1]), (0x05, vec![], vec![2]), (0x06, vec![], vec![3]), (0xfb, vec![], le(2))]);
+        let input = [
+            (0x01, vec![], seedlock_core::bitcoin::consensus::serialize(&utxo)),
+            (0x06, a.serialize().to_vec(), origin),
+            (0x0e, vec![], outpoint.txid.to_byte_array().to_vec()),
+            (0x0f, vec![], le(outpoint.vout)),
+            (0x10, vec![], le(0xffff_fffd)),
+        ];
+        map(&mut bytes, &input);
+        map(&mut bytes, &[(0x03, vec![], 60_000u64.to_le_bytes().to_vec()), (0x09, vec![], info(scan, spend))]);
+        let change = own.labeled_spend(0).unwrap();
+        map(&mut bytes, &[(0x03, vec![], 39_000u64.to_le_bytes().to_vec()), (0x09, vec![], info(&own.scan_public(), &change)), (0x0a, vec![], le(0))]);
+        (bytes, outpoint)
+    }
+
+    #[test]
+    fn the_silent_payment_wallet_for_sparrow() {
+        let seed = Seed::from_words(WORDS.into()).unwrap();
+        let wallet = seed.wallet(Vec::new(), Net::Mainnet).unwrap();
+        let s = wallet.silent_payments("Poupança da família".into()).unwrap();
+        let keys = SilentKeys::new(&wallet.inner, 0).unwrap();
+        assert_eq!((s.address.as_str(), s.descriptor.as_str()), (keys.address().as_str(), keys.descriptor().unwrap().as_str()));
+        assert!(s.address.starts_with("sp1q") && s.descriptor.starts_with("sp([73c5da0a/352h/0h/0h]spscan1q"), "{s:?}");
+        assert_eq!((s.derivation.as_str(), s.spscan_name.as_str(), s.network.as_str()), ("m/352'/0'/0'", "spscan", "mainnet (real bitcoin)"));
+        assert!(s.descriptor.contains(&s.spscan) && !s.passphrase_used);
+        assert_eq!(s.label, "Poupança da famí", "the backup's name, cut to the 16 characters Sparrow allows");
+        let test = seed.wallet(Vec::new(), Net::Signet).unwrap().silent_payments(String::new()).unwrap();
+        assert_eq!(test.label, "SeedLock 73c5", "a backup without a name: as the keystore of the usual wallet");
+        assert!(test.address.starts_with("tsp1q") && test.descriptor.starts_with("sp([73c5da0a/352h/1h/0h]tspscan1q"), "{test:?}");
+        assert_eq!(test.spscan_name, "tspscan");
+    }
+
+    #[test]
+    fn reviews_and_signs_a_payment_to_a_silent_payment_address() {
+        let secp = secp256k1::Secp256k1::new();
+        let seed = Seed::from_words(WORDS.into()).unwrap();
+        let wallet = seed.wallet(Vec::new(), Net::Mainnet).unwrap();
+        let (b_scan, b_spend) = (secp256k1::SecretKey::from_slice(&[0x11; 32]).unwrap(), secp256k1::SecretKey::from_slice(&[0x22; 32]).unwrap());
+        let (scan, spend) = (b_scan.public_key(&secp), b_spend.public_key(&secp));
+        let (bytes, outpoint) = silent_payment(&wallet.inner, &scan, &spend);
+        let tx = Transaction::from_bytes(bytes.clone()).unwrap();
+        assert!(tx.has_silent_payments());
+        assert_eq!((tx.network_hint(), tx.input_fingerprints()), (NetworkHint::Mainnet, vec!["73c5da0a".to_string()]));
+
+        let r = wallet.review(tx.clone(), Vec::new()).unwrap();
+        assert_eq!(r.outputs[0].address, seedlock_core::silent::encode_address(&scan, &spend, Network::Bitcoin));
+        assert!(r.outputs[0].external && r.outputs[0].note.contains("SENT TO SOMEONE ELSE"));
+        assert!(!r.outputs[1].external && r.outputs[1].note.contains("your own silent payment address"), "{:?}", r.outputs[1]);
+        assert_eq!((r.fee.as_str(), r.sending.as_str(), r.inputs_to_sign), ("0.00001000", "0.00060000", 1));
+
+        let signed = wallet.sign(tx.clone(), Vec::new()).unwrap();
+        assert_eq!(tx.to_bytes(), bytes, "the transaction given stays as it was");
+        assert_eq!(signed.transaction.request.version(), 2, "it goes back to Sparrow as version 2");
+        assert_eq!(signed.transaction.request.psbt().inputs[0].partial_sigs.len(), 1);
+        // the output that the review showed, and that the receiver finds with its scan key (BIP 352)
+        let a = wallet.inner.public_key_at(&"m/84'/0'/0'/0/0".parse().unwrap()).unwrap();
+        let smallest: [u8; 36] = seedlock_core::bitcoin::consensus::serialize(&outpoint).try_into().unwrap();
+        let input_hash = seedlock_core::silent::input_hash(&smallest, &a).unwrap();
+        let shared = seedlock_core::silent::shared_secret(&input_hash, &seedlock_core::silent::ecdh_share(&b_scan, &a).unwrap()).unwrap();
+        let found = seedlock_core::silent::output_key(&shared, &spend, 0).unwrap();
+        let script = &signed.transaction.request.psbt().unsigned_tx.output[0].script_pubkey;
+        assert_eq!(script.as_bytes()[2..], found.serialize());
+        let on_chain = seedlock_core::bitcoin::Address::from_script(script, Network::Bitcoin).unwrap().to_string();
+        assert_eq!(r.outputs[0].silent_payment.as_deref(), Some(on_chain.as_str()));
+
+        // through its animated QR code and the scanner: the same version 2 PSBT arrives
+        let codes = qr_animation(signed.transaction.qr_frames().unwrap()).unwrap();
+        let scanner = QrScanner::new(ScanTarget::Transaction);
+        let arrived = codes.iter().cycle().take(codes.len() * 2).enumerate().any(|(i, code)| {
+            let (w, h, luma) = camera_picture(code, 70 + i as u64);
+            scanner.add_picture(w, h, luma).unwrap().done
+        });
+        assert!(arrived);
+        assert_eq!(scanner.transaction().unwrap().to_bytes(), signed.transaction.to_bytes());
     }
 
     #[test]
@@ -450,8 +614,8 @@ mod tests {
         assert_eq!(tx.input_fingerprints(), ["73c5da0a"], "the wallet that signs it");
         let signed = wallet.sign(tx.clone(), Vec::new()).unwrap();
         assert_eq!((signed.inputs, signed.multisig.as_deref()), (1, None));
-        assert!(tx.psbt.inputs[0].partial_sigs.is_empty(), "the transaction given stays as it was");
-        assert_eq!(signed.transaction.psbt.inputs[0].partial_sigs.len(), 1);
+        assert!(tx.request.psbt().inputs[0].partial_sigs.is_empty(), "the transaction given stays as it was");
+        assert_eq!(signed.transaction.request.psbt().inputs[0].partial_sigs.len(), 1);
         assert_eq!(signed.transaction.txid(), tx.txid(), "the same payment");
         // another seed has nothing to sign in it
         let stranger = Seed::from_words("legal winner thank year wave sausage worth useful legal winner thank yellow".into()).unwrap();

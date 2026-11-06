@@ -75,7 +75,7 @@ pub fn final_word_candidates(leading: &str) -> Result<Vec<&'static str>> {
     let base = Zeroizing::new(complete_words(&typed)?.join(" "));
     let mut out = Vec::new();
     for candidate in LANGUAGE.word_list().iter() {
-        let attempt = Zeroizing::new(format!("{} {}", &*base, candidate));
+        let attempt = Zeroizing::new(format!("{} {}", base.as_str(), candidate));
         if Mnemonic::parse_in_normalized(LANGUAGE, &attempt).is_ok() {
             out.push(*candidate);
         }

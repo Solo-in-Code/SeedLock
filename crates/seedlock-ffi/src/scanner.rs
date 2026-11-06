@@ -144,8 +144,8 @@ impl QrScanner {
         for code in found {
             match s.target {
                 ScanTarget::Transaction => match s.collector.add(&code.text) {
-                    ScanUpdate::Done(psbt) => {
-                        s.transaction = Some(Arc::new(Transaction::new(psbt)));
+                    ScanUpdate::Done(request) => {
+                        s.transaction = Some(Arc::new(Transaction::new(*request)));
                         s.progress = (1, 1);
                         step.have = 1;
                         step.total = 1;
@@ -277,7 +277,7 @@ pub(crate) mod tests {
             input: vec![TxIn { previous_output: OutPoint::null(), script_sig: ScriptBuf::new(), sequence: Sequence::MAX, witness: Witness::new() }],
             output: (0..6).map(|i| TxOut { value: Amount::from_sat(1000 + i), script_pubkey: ScriptBuf::from(vec![0x51; 34]) }).collect(),
         };
-        Arc::new(Transaction::new(seedlock_core::bitcoin::Psbt::from_unsigned_tx(tx).unwrap()))
+        Arc::new(Transaction::new(seedlock_core::bitcoin::Psbt::from_unsigned_tx(tx).unwrap().into()))
     }
 
     #[test]

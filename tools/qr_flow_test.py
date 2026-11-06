@@ -18,7 +18,9 @@ End-to-end checks of the QR features, driven like a person would, with independe
      decoded and reassembled into the signed PSBT; t, the backup QR code, and the fallbacks without a screen or ffplay;
      and the window closing with SeedLock when the computer goes online while it is open.
   P) menu 5: the wallet laid out for Sparrow, equal to embit's; its QR picture, a UR crypto-output, read with urtypes
-     as embit's own account key, its keystore named after the backup.
+     as embit's own account key, its keystore named after the backup; and its silent payment wallet (menu 5, then 2),
+     the address and the sp() descriptor worked out again here from embit's keys (BIP 352, 392, 380), its QR picture
+     read back as that descriptor.
 
     pip install pexpect opencv-python-headless numpy cbor2 embit segno urtypes;  npm install jsdom (set JSDOM_DIR to its node_modules)
     cargo build --release --locked -p seedlock-cli --features test-hooks    # a build for the tests: it reads their stand-in networks
@@ -669,15 +671,18 @@ def wallet_code(png, path, net):
     assert key.name == "wallet-two", key.name
     return code
 
-def wallet_screen(s, answer_network=None):
+def wallet_screen(s, answer_network=None, silent=False):
     s.text("Does this wallet use a BIP39 passphrase? [y/N] "); s.send("n")
     s.expect(r"Backup password \(hidden\): "); s.send(PW2)
     if answer_network:
         s.text("There is no transaction of this wallet here, so SeedLock cannot tell its network by itself.")
         s.text("Type m or t [m]: "); s.send(answer_network)
+    s.text("Which wallet do you want to set up in Sparrow?")
+    s.text("Choose 1 or 2 [1]: "); s.send("2" if silent else "")    # Enter: the usual wallet
     s.text("Saved next to your backups.")                     # saved first, before the QR code is offered
     shown = s.before
-    s.text("Show the wallet as a QR code for Sparrow to scan? [Y/n] ")
+    s.text("Show the silent payment wallet as a QR code for Sparrow to scan? [Y/n] " if silent else
+           "Show the wallet as a QR code for Sparrow to scan? [Y/n] ")
     s.send("n")
     s.expect(r"\n> "); s.send("q"); s.expect(pexpect.EOF)
     return shown
@@ -722,6 +727,42 @@ print(f"P) menu 5 lays the wallet out for Sparrow: fingerprint, derivation m/84'
       f"agrees with BIP380's reference code; saved as text and as a QR picture: a UR crypto-output that urtypes reads as embit's own "
       f"account key, its keystore named \"wallet-two\"; with no transaction, one question: t gives m/84'/1'/0', a tpub and tb1q addresses, "
       f"and a QR code with the tpub, all equal to embit's: OK")
+
+# (3) the silent payment wallet (menu 5, then 2): worked out again here from embit's keys, nothing shared with SeedLock
+from embit import bech32, hashes
+CURVE_P, CURVE_N = 2**256 - 2**32 - 977, 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEBAAEDCE6AF48A03BBFD25E8CD0364141
+def silent_wallet(coin, hrp):
+    """The silent payment address (BIP 352: the scan and spend keys at m/352'/coin'/0'/1'/0 and .../0'/0, in
+    Bech32m) and the sp() descriptor (BIP 392: the scan private key and the spend public key) with BIP380's checksum."""
+    scan = root2.derive(f"m/352h/{coin}h/0h/1h/0").key
+    spend = root2.derive(f"m/352h/{coin}h/0h/0h/0").key.get_public_key().sec()
+    v0 = lambda h, payload: bech32.bech32_encode(bech32.Encoding.BECH32M, h, [0] + bech32.convertbits(payload, 8, 5))
+    address = v0(hrp, scan.get_public_key().sec() + spend)
+    spscan = v0(hrp + "scan", scan.secret + spend)
+    return address, descsum_create(f"sp([{fp2}/352h/{coin}h/0h]{spscan})")
+
+s = Session()
+s.expect(r"\n> "); s.send("5")
+s.text(CHOOSE); s.send("2")
+shown_sp = wallet_screen(s, silent=True).replace("\r", "")
+address, descriptor = silent_wallet(0, "sp")
+assert f"Silent payment wallet {fp2} for Sparrow, mainnet (real bitcoin)" in shown_sp, shown_sp[-2500:]
+assert f"\n  {address}\n" in shown_sp and f"\n  {descriptor}\n" in shown_sp, shown_sp[-2500:]
+assert "Derivation         : m/352'/0'/0'" in shown_sp and f"spscan             : {descriptor.split(']')[1].split(')')[0]}" in shown_sp
+png = [f for f in os.listdir(backups) if f.startswith("wallet-two-silent-payments-for-sparrow-qr") and f.endswith(".png")]
+assert len(png) == 1, os.listdir(backups)
+assert decode_qr(cv2.imread(os.path.join(backups, png[0]), cv2.IMREAD_GRAYSCALE)) == descriptor
+text_sp = open(os.path.join(backups, "wallet-two-silent-payments-for-sparrow.txt")).read()
+assert address in text_sp and descriptor in text_sp
+s = Session(cwd=empty5)
+s.expect(r"\n> "); s.send("5")
+s.text("or type c to scan the backup's QR code with the camera: "); s.send(os.path.join(backups, "wallet-two.seedlock"))
+shown_tsp = wallet_screen(s, answer_network="t", silent=True)
+address_t, descriptor_t = silent_wallet(1, "tsp")
+assert address_t.startswith("tsp1q") and address_t in shown_tsp and descriptor_t in shown_tsp, shown_tsp[-2500:]
+print("P2) menu 5, then 2: the silent payment address and the sp() descriptor for Sparrow equal what embit's keys give "
+      "(BIP 352, 392, 380), on mainnet (sp1q, spscan1q) and a test network (tsp1q, tspscan1q); saved as text, and as a QR "
+      "picture that OpenCV reads back as that descriptor: OK")
 
 log = ALL.getvalue()
 for secret in (PW1, PW2, WORDS2):

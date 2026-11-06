@@ -1,5 +1,8 @@
 """Independent check of PSBT signing: embit builds a PSBT, seedlock signs it, and embit
-verifies the signature with its own sighash implementation.
+verifies the signature with its own sighash implementation. Then silent payments, through the same
+program: the wallet for Sparrow (info --silent-payments), a payment to someone's silent payment address
+and a spend of one the wallet received, both as Sparrow sends them (PSBT version 2), checked by the
+Python half of android/jvm-check (plain arithmetic on the curve, and embit for the signatures).
 
     pip install embit mnemonic
     python3 crosscheck_psbt.py ../target/release/seedlock
@@ -74,3 +77,25 @@ print("PSBT built by embit -> signed by seedlock -> signature verified by embit'
 signed.inputs[0].witness_utxo = TransactionOutput(100_001, script.p2wpkh(in_pub))
 assert not in_pub.verify(ec.Signature.parse(sig[:-1]), signed.sighash(0))
 print("sanity: signature is bound to the amount: OK")
+
+# silent payments, through the command-line program, checked as android/jvm-check checks the phone's library
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "android", "jvm-check"))
+sys.dont_write_bytecode = True  # no __pycache__ folder left in SeedLock's folder
+import psbt_check
+folder = tempfile.mkdtemp()
+open(os.path.join(folder, "words.txt"), "w").write(mn)
+psbt_check.make_silent(folder)
+r = subprocess.run([BIN, "info", "w.seedlock", "--silent-payments"], input=pw + "\n", text=True, capture_output=True)
+assert r.returncode == 0, r.stderr
+lines = [line.strip() for line in r.stdout.splitlines()]
+address = next(line for line in lines if line.startswith("sp1q"))
+descriptor = next(line for line in lines if line.startswith("sp(["))
+open(os.path.join(folder, "sp_wallet.txt"), "w").write(f"{address}\n{descriptor}\n")
+for name in ("sp", "sp_spend"):
+    r = subprocess.run([BIN, "sign", "w.seedlock", "--psbt", os.path.join(folder, f"{name}.psbt"), "--yes"],
+                       input=pw + "\n", text=True, capture_output=True)
+    assert r.returncode == 0, r.stderr
+    open(os.path.join(folder, f"{name}_signed.b64"), "w").write(r.stdout.strip())
+assert "yours (silent payment, m/352'/0'/0'/0'/0)" in r.stderr, r.stderr
+psbt_check.verify_silent(folder)
+print("silent payments signed by seedlock, checked independently: OK")

@@ -306,7 +306,7 @@ impl MultisigWallet {
             .collect::<std::result::Result<Vec<_>, _>>()
             .map_err(|e| err(format!("key derivation failed: {e}")))?;
         if self.sorted {
-            keys.sort_by(|a, b| a.inner.serialize().cmp(&b.inner.serialize()));
+            keys.sort_by_key(|k| k.inner.serialize());
         }
         Ok(keys)
     }

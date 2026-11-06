@@ -4,10 +4,10 @@ use crate::cli::*;
 use crate::{qrimg, qrwindow, scan};
 use crate::ui::{self, fail, Res};
 use qrcode::{EcLevel, QrCode};
-use seedlock_core::bitcoin::psbt::Psbt;
 use seedlock_core::{
     backup, entropy, mnemonic, psbt,
-    psbt::OutputKind,
+    psbt::{OutputKind, Request},
+    silent::SilentKeys,
     multisig::{self, MultisigScript, MultisigWallet},
     wallet::{path_to_display, path_to_string, ScriptType, Wallet},
     Error as CoreError, Mnemonic, Network,
@@ -741,6 +741,9 @@ pub fn info(args: InfoArgs) -> Res<()> {
     let script = args.script.script();
     let wallet = Wallet::new(&m, &passphrase, network)?;
     drop(passphrase);
+    if args.silent_payments {
+        return silent_info(&wallet, &args);
+    }
 
     let account_path = wallet.account_path(script, args.account)?;
     let base = path_to_display(&account_path);
@@ -772,6 +775,45 @@ pub fn info(args: InfoArgs) -> Res<()> {
     Ok(())
 }
 
+/// `info --silent-payments`: the wallet's silent payment address, and the watch-only wallet for Sparrow that
+/// finds the payments to it.
+fn silent_info(wallet: &Wallet, args: &InfoArgs) -> Res<()> {
+    if args.account != 0 {
+        return fail("silent payments use account 0 only, the one Sparrow uses and SeedLock signs for: leave --account out");
+    }
+    let keys = SilentKeys::new(wallet, 0)?;
+    let base = path_to_display(keys.account_path());
+    println!("Wallet fingerprint : {}", wallet.fingerprint());
+    println!("Network            : {}", network_name(wallet.network()));
+    println!("Silent payments    : account 0 ({base})");
+    if args.passphrase {
+        println!("BIP39 passphrase   : in use (this is a different wallet from the one without it)");
+    }
+    println!("\nSilent payment address (give it to anyone who pays you, as often as you like):");
+    println!("  {}", keys.address());
+    println!("\nFor Sparrow 2.5 or later (File > Import Wallet, Output Descriptor):");
+    println!("  {}", keys.descriptor()?);
+    println!("\nOr its fields (File > New Wallet, Policy Type \"{SPARROW_SP_POLICY}\", Keystore \"Watch Only Wallet\"):");
+    println!("  Master fingerprint : {}", wallet.fingerprint());
+    println!("  Derivation         : {base}");
+    println!("  {:<18} : {}", spscan_name(wallet.network()), keys.spscan());
+    eprintln!("\nThe descriptor (and the {} key in it) lets a wallet FIND the payments to your address, not spend them:", spscan_name(wallet.network()));
+    eprintln!("that takes your seed. Keep it private all the same: whoever has it sees every payment you receive.");
+    Ok(())
+}
+
+/// How Sparrow calls a silent payment wallet (its Policy Type).
+const SPARROW_SP_POLICY: &str = "Single Signature SP (Silent Payments)";
+
+/// The name of Sparrow's field for the `spscan` key, which is also the key's prefix.
+fn spscan_name(network: Network) -> &'static str {
+    if network == Network::Bitcoin {
+        "spscan"
+    } else {
+        "tspscan"
+    }
+}
+
 // ===========================================================================
 // sign
 // ===========================================================================
@@ -787,7 +829,7 @@ pub fn sign(args: SignArgs) -> Res<()> {
     sign_transaction(tx, input, &args)
 }
 
-fn read_psbt_file(path: &Path) -> Res<Psbt> {
+fn read_psbt_file(path: &Path) -> Res<Request> {
     let meta = fs::metadata(path).map_err(|e| format!("cannot open {}: {e}", path.display()))?;
     if !meta.is_file() {
         return fail(format!("{} is not a file", path.display()));
@@ -795,7 +837,7 @@ fn read_psbt_file(path: &Path) -> Res<Psbt> {
     if meta.len() > MAX_PSBT_FILE {
         return fail("that file is too large to be a PSBT");
     }
-    Ok(psbt::decode(&fs::read(path)?)?)
+    Ok(Request::decode(&fs::read(path)?)?)
 }
 
 /// Read a backup by scanning its QR code (the one menu 8 makes) with the camera. Returns the
@@ -814,7 +856,7 @@ fn scan_backup(camera: u32) -> Res<String> {
 }
 
 /// Scan the transaction from the QR code that another wallet shows, using the camera.
-fn scan_transaction(camera: u32) -> Res<Psbt> {
+fn scan_transaction(camera: u32) -> Res<Request> {
     eprintln!("\nOpening the camera ...");
     let mut cam = scan::Camera::open(camera, true)?;
     match &cam.preview_note {
@@ -832,14 +874,14 @@ fn scan_transaction(camera: u32) -> Res<Psbt> {
 }
 
 /// The transaction to sign, and the file it came from (none when it was scanned).
-fn acquire_transaction(args: &SignArgs) -> Res<(Psbt, Option<PathBuf>)> {
+fn acquire_transaction(args: &SignArgs) -> Res<(Request, Option<PathBuf>)> {
     match &args.psbt {
         Some(path) => Ok((read_psbt_file(path)?, Some(path.clone()))),
         None => Ok((scan_transaction(args.camera)?, None)),
     }
 }
 
-fn sign_transaction(mut tx: Psbt, input: Option<PathBuf>, args: &SignArgs) -> Res<()> {
+fn sign_transaction(mut tx: Request, input: Option<PathBuf>, args: &SignArgs) -> Res<()> {
     let registered = load_multisig_wallets();
     let (network, network_label) = choose_network(&tx, args.network, &registered)?;
     let text = load_backup_text(&args.backup)?;
@@ -849,19 +891,19 @@ fn sign_transaction(mut tx: Psbt, input: Option<PathBuf>, args: &SignArgs) -> Re
     drop(passphrase);
     eprintln!("\nWallet fingerprint: {}    Network: {network_label}", wallet.fingerprint());
 
-    let review = psbt::review_with(&tx, &wallet, &registered)?;
+    let review = tx.review(&wallet, &registered)?;
     print_review(&review);
 
     if !args.yes && !ui::confirm("Do you want to SIGN this transaction?", false)? {
         eprintln!("Cancelled. Nothing was signed.");
         return Ok(());
     }
-    let signed = psbt::sign_with(&mut tx, &wallet, &registered)?;
+    let signed = tx.sign(&wallet, &registered)?;
     drop(wallet);
     drop(m); // the seed is no longer needed: nothing below touches it
     let out = save_signed(&tx, args, &input)?;
     if !std::io::stdout().is_terminal() {
-        println!("{}", psbt::encode_base64(&tx)); // for scripts; a person does not need a wall of text
+        println!("{}", tx.to_base64()); // for scripts; a person does not need a wall of text
     }
     eprintln!("\nSigned {signed} input(s). The signed PSBT is saved as:\n  {}", full_path(&out).display());
 
@@ -891,7 +933,7 @@ fn sign_transaction(mut tx: Psbt, input: Option<PathBuf>, args: &SignArgs) -> Re
 
 /// Write the signed PSBT: where `--out` says, else next to the input file (a USB stick
 /// stays a USB stick), else in the transactions folder. Never overwrites anything.
-fn save_signed(tx: &Psbt, args: &SignArgs, input: &Option<PathBuf>) -> Res<PathBuf> {
+fn save_signed(tx: &Request, args: &SignArgs, input: &Option<PathBuf>) -> Res<PathBuf> {
     let bytes = tx.serialize();
     if let Some(out) = &args.out {
         write_new_file(out, &bytes)?;
@@ -905,7 +947,7 @@ fn save_signed(tx: &Psbt, args: &SignArgs, input: &Option<PathBuf>) -> Res<PathB
         }
     }
     let dir = ensure_tx_folder()?;
-    let id = tx.unsigned_tx.compute_txid().to_string();
+    let id = tx.psbt().unsigned_tx.compute_txid().to_string();
     let path = unused_path(&dir, &format!("signed-{}", &id[..8]), "psbt");
     write_new_file(&path, &bytes)?;
     Ok(path)
@@ -956,8 +998,8 @@ fn show_in_window(title: &str, texts: &[String], level: EcLevel, how_to_scan: &s
 /// Show the signed transaction as a QR code that another wallet can scan: in a window of its own
 /// (the default), drawn in this terminal, or as a large web page in the browser. The animated form
 /// is the UR format SeedSigner uses.
-fn show_signed_qr(tx: &Psbt, signed: &Path, is_static: bool, place: QrPlace) -> Res<()> {
-    let plain: Vec<String> = if is_static { vec![psbt::encode_base64(tx)] } else { psbt::ur_frames(tx)? };
+fn show_signed_qr(tx: &Request, signed: &Path, is_static: bool, place: QrPlace) -> Res<()> {
+    let plain: Vec<String> = if is_static { vec![tx.to_base64()] } else { tx.ur_frames()? };
     if !ui::can_animate() {
         // Nobody to show it to: print it as text for other tools to draw.
         if is_static {
@@ -1126,6 +1168,9 @@ fn print_review(r: &psbt::Review) {
     for o in &r.outputs {
         eprintln!("  #{}  {} BTC", o.index, psbt::format_btc(o.value));
         eprintln!("      to {}", o.address);
+        if let Some(on_chain) = &o.silent_payment {
+            eprintln!("      (a silent payment: on the blockchain it is {on_chain}, which only the receiver can tell is theirs)");
+        }
         match &o.kind {
             OutputKind::External => {
                 eprintln!("      >>> SENT TO SOMEONE ELSE. Check this address carefully! <<<")
@@ -1141,6 +1186,15 @@ fn print_review(r: &psbt::Review) {
             }
             OutputKind::MultisigReceive { path, wallet } => {
                 eprintln!("      goes to the multisig wallet \"{wallet}\" (verified from all its cosigners' keys: {path})")
+            }
+            OutputKind::SilentChange => {
+                eprintln!("      change back to you, to your own silent payment address (verified from your seed)")
+            }
+            OutputKind::SilentReceive { label: None } => {
+                eprintln!("      goes to your own silent payment address (verified from your seed)")
+            }
+            OutputKind::SilentReceive { label: Some(m) } => {
+                eprintln!("      goes to your own silent payment address, label {m} (verified from your seed)")
             }
         }
     }
@@ -1475,19 +1529,19 @@ fn ask_network(default: NetworkArg) -> Res<NetworkArg> {
 /// paths say (every key path in it, m/84'/0'/... being mainnet and m/84'/1'/... a test network, and the
 /// version of the wallet keys it may carry, xpub or tpub). Asks only when the transaction cannot tell.
 /// Returns it and how to describe it.
-fn choose_network(tx: &Psbt, asked: Option<NetworkArg>, registered: &[(String, MultisigWallet)]) -> Res<(NetworkArg, String)> {
+fn choose_network(tx: &Request, asked: Option<NetworkArg>, registered: &[(String, MultisigWallet)]) -> Res<(NetworkArg, String)> {
     use psbt::NetworkHint;
     if let Some(network) = asked {
         return Ok((network, network_name(network.network()).to_string()));
     }
-    let why = match psbt::network_hint(tx) {
+    let why = match tx.network_hint() {
         NetworkHint::Mainnet => return Ok((NetworkArg::Mainnet, "mainnet (real bitcoin), found from the transaction".to_string())),
         NetworkHint::TestNetwork => {
             return Ok((NetworkArg::Testnet, "a test network (testnet or signet), found from the transaction".to_string()))
         }
         NetworkHint::Unknown => {
             // legacy multisig key paths (m/45'/...) name no network: a registered wallet that owns an input does
-            let owner = tx.inputs.iter().flat_map(|i| i.bip32_derivation.values()).find_map(|(fp, path)| {
+            let owner = tx.psbt().inputs.iter().flat_map(|i| i.bip32_derivation.values()).find_map(|(fp, path)| {
                 registered.iter().find(|(_, ms)| ms.locate(*fp, path).is_some()).map(|(_, ms)| ms.is_mainnet())
             });
             match owner {
@@ -1554,7 +1608,25 @@ fn menu_info() -> Res<()> {
     };
     let wallet = Wallet::new(&m, &passphrase, network.network())?;
     drop(passphrase);
+    if ask_silent_wallet(script)? {
+        return silent_wallet_for_sparrow(&wallet, network, passphrase_used, &name);
+    }
     wallet_for_sparrow(&wallet, script, network, passphrase_used, &found, &name)
+}
+
+/// Which wallet to set up in Sparrow: the usual one (false), or the silent payment wallet (true).
+fn ask_silent_wallet(script: ScriptType) -> Res<bool> {
+    eprintln!("\nWhich wallet do you want to set up in Sparrow?");
+    eprintln!("  1) Your usual wallet ({}): a new address for every payment", sparrow_name(script));
+    eprintln!("  2) A silent payment wallet: one address that you give to everyone, and nobody else can tell");
+    eprintln!("     which payments on the blockchain went to it (Sparrow 2.5 or later)");
+    loop {
+        match ui::read_line("Choose 1 or 2 [1]: ")?.trim() {
+            "" | "1" => return Ok(false),
+            "2" => return Ok(true),
+            _ => eprintln!("Please type 1 or 2."),
+        }
+    }
 }
 
 /// What a wallet's newest transaction says about it.
@@ -1594,10 +1666,11 @@ fn find_in_transactions(
             }
         }
     }
-    files.sort_by(|a, b| b.0.cmp(&a.0));
+    files.sort_by_key(|f| std::cmp::Reverse(f.0));
     for (_, path) in files.into_iter().take(50) {
         let Ok(bytes) = fs::read(&path) else { continue };
-        let Ok(tx) = psbt::decode(&bytes) else { continue };
+        let Ok(request) = Request::decode(&bytes) else { continue };
+        let tx = request.psbt();
         let origins = tx
             .inputs
             .iter()
@@ -1942,7 +2015,7 @@ fn multisig_list() -> Res<()> {
     }
     for (name, ms) in &wallets {
         let network = if ms.is_mainnet() { Network::Bitcoin } else { Network::Testnet };
-        eprintln!("\n\"{name}\": {}, {}, {}", ms.label(), wallet_kind(&ms), net_words(ms.is_mainnet()));
+        eprintln!("\n\"{name}\": {}, {}, {}", ms.label(), wallet_kind(ms), net_words(ms.is_mainnet()));
         for (i, c) in ms.cosigners.iter().enumerate() {
             eprintln!("  {}) {}  {}", i + 1, c.fingerprint, path_to_display(&c.path));
         }
@@ -2079,6 +2152,62 @@ fn wallet_for_sparrow(wallet: &Wallet, script: ScriptType, network: NetworkArg, 
     Ok(())
 }
 
+/// The silent payment wallet laid out for Sparrow: the address to give to payers, and the watch-only wallet that
+/// finds the payments to it (a BIP 392 descriptor, as text and as a QR code, or its fields). Shown, offered as a QR
+/// code, and saved next to the backups.
+fn silent_wallet_for_sparrow(wallet: &Wallet, network: NetworkArg, passphrase_used: bool, name: &str) -> Res<()> {
+    use std::fmt::Write as _;
+    let net = match network {
+        NetworkArg::Mainnet => "mainnet (real bitcoin)",
+        NetworkArg::Regtest => "regtest",
+        _ => "a test network (testnet or signet)",
+    };
+    let keys = SilentKeys::new(wallet, 0)?;
+    let descriptor = keys.descriptor()?;
+    let spscan = spscan_name(wallet.network());
+    let label = multisig::keystore_label(name, wallet.fingerprint());
+    let mut t = String::new();
+    let _ = writeln!(t, "Silent payment wallet {} for Sparrow, {net}", wallet.fingerprint());
+    if passphrase_used {
+        let _ = writeln!(t, "With its BIP39 passphrase: a different wallet from the one without it.");
+    }
+    let _ = writeln!(t, "\nYour silent payment address. Give it to anyone who pays you, as often as you like: each payment gets");
+    let _ = writeln!(t, "an address of its own on the blockchain, which nobody else can link to this one or to the other payments.");
+    let _ = writeln!(t, "  {}", keys.address());
+    let _ = writeln!(t, "\nIn Sparrow 2.5 or later: File > Import Wallet, Output Descriptor, then Scan... (this QR code) or paste:");
+    let _ = writeln!(t, "  {descriptor}");
+    let _ = writeln!(t, "Or File > New Wallet, Policy Type \"{SPARROW_SP_POLICY}\", Keystore \"Watch Only Wallet\":");
+    let _ = writeln!(t, "  Master fingerprint : {}", wallet.fingerprint());
+    let _ = writeln!(t, "  Derivation         : {}", path_to_display(keys.account_path()));
+    let _ = writeln!(t, "  {spscan:<18} : {}", keys.spscan());
+    let _ = writeln!(t, "When Sparrow asks for the wallet's name, type \"{name}\". Sparrow calls the keystore \"Keystore 1\": it takes no");
+    let _ = writeln!(t, "name from a silent payment wallet's descriptor. To give it the backup's name too: the wallet's Settings tab,");
+    let _ = writeln!(t, "the keystore's Label field, \"{label}\" (Sparrow allows 16 characters), then Apply.");
+    let _ = writeln!(t, "\nWith this descriptor (its {spscan} key) Sparrow FINDS the payments to your address. It cannot spend them:");
+    let _ = writeln!(t, "that takes your seed, which stays here. Keep it private all the same: whoever has it sees every payment");
+    let _ = writeln!(t, "you receive. To find them, Sparrow must be connected to a server that supports silent payments (not to");
+    let _ = writeln!(t, "Bitcoin Core), and it asks from which date to look: the day you first gave out the address.");
+    let _ = writeln!(t, "To spend them, Sparrow sends the transaction here to be signed, as for any other wallet (menu 6).");
+    print!("\n{t}");
+    let _ = std::io::Write::flush(&mut std::io::stdout());
+    let dir = ensure_backup_folder()?;
+    let text_file = unused_path(&dir, &format!("{name}-silent-payments-for-sparrow"), "txt");
+    write_new_file(&text_file, t.as_bytes())?;
+    let picture = QrCode::with_error_correction_level(descriptor.as_bytes(), EcLevel::M)?;
+    let picture_file = unused_path(&dir, &format!("{name}-silent-payments-for-sparrow-qr"), "png");
+    write_new_file(&picture_file, &qrimg::png(&picture, 8))?;
+    eprintln!("\nSaved next to your backups. They cannot spend anything, but whoever reads them can see every payment you receive:");
+    eprintln!("  {}\n  {}", full_path(&text_file).display(), full_path(&picture_file).display());
+    if ui::can_animate() && ui::confirm("\nShow the silent payment wallet as a QR code for Sparrow to scan?", true)? {
+        show_text_qr(
+            "SeedLock - silent payment wallet for Sparrow",
+            &descriptor,
+            "In Sparrow, choose File > Import Wallet, then Output Descriptor and Scan..., and hold the camera toward this code.",
+        )?;
+    }
+    Ok(())
+}
+
 /// The wallet's QR code for Sparrow (a UR crypto-output): in a window of its own, else in the terminal.
 fn show_wallet_qr(code: &str) -> Res<()> {
     show_text_qr(
@@ -2205,7 +2334,7 @@ fn menu_sign() -> Res<()> {
         },
         Source::Camera => (scan_transaction(0)?, None),
     };
-    eprintln!("\nTransaction received: {} input(s), {} output(s).", tx.inputs.len(), tx.unsigned_tx.output.len());
+    eprintln!("\nTransaction received: {} input(s), {} output(s).", tx.psbt().inputs.len(), tx.psbt().unsigned_tx.output.len());
     let passphrase = ui::confirm("Does this wallet use a BIP39 passphrase?", false)?;
     let args = SignArgs {
         backup,
@@ -2246,7 +2375,8 @@ mod tests {
     }
 
     /// A transaction with one key path in its input (and optionally one in a change output).
-    fn psbt_with_paths(input_path: Option<&str>, change_path: Option<&str>) -> Psbt {
+    fn psbt_with_paths(input_path: Option<&str>, change_path: Option<&str>) -> Request {
+        use seedlock_core::bitcoin::psbt::Psbt;
         use seedlock_core::bitcoin::secp256k1::{Secp256k1, SecretKey};
         use seedlock_core::bitcoin::{absolute::LockTime, bip32::{DerivationPath, Fingerprint}, transaction::Version, Amount, OutPoint, ScriptBuf, Sequence, Transaction, TxIn, TxOut, Witness};
         let tx = Transaction {
@@ -2264,7 +2394,7 @@ mod tests {
         if let Some(p) = change_path {
             psbt.outputs[0].bip32_derivation.insert(key, origin(p));
         }
-        psbt
+        psbt.into()
     }
 
     #[test]
