@@ -2,7 +2,7 @@
 # Checks the Android app's way into Rust on a computer: builds seedlock-ffi for this computer, writes
 # its Kotlin code with uniffi-bindgen, and runs JvmCheck.kt in the JVM through JNA, the way the app
 # calls the same code on a phone. embit (Python) makes the transaction and checks the signature, and
-# urtypes the wallet's QR code for Sparrow.
+# urtypes the wallet's QR code for Sparrow; the silent payments are worked out again in plain Python.
 #
 #   KOTLINC=/path/to/kotlinc/bin/kotlinc JNA_JAR=/path/to/jna.jar sh android/jvm-check/run.sh
 #

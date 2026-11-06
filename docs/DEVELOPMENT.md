@@ -109,7 +109,7 @@ different: built in a fixed environment, they come out identical wherever they a
 ### The version number
 
 The program takes its version from one place, `version` under `[workspace.package]` in the top `Cargo.toml`. The
-menu's title shows it (`=== SeedLock 0.3.2: offline Bitcoin seed tool ===`), and `seedlock --version` prints it.
+menu's title shows it (`=== SeedLock 0.4.0: offline Bitcoin seed tool ===`), and `seedlock --version` prints it.
 `Cargo.lock` records it too: after changing it, run `cargo build --offline` once without `--locked`, so that
 `Cargo.lock` follows. The README and the guides show it as well; see [Making a release](#making-a-release).
 
@@ -129,7 +129,8 @@ and makes backups (the same files), lays the wallet out for Sparrow, and reads a
 QR code with the camera, shows every address and amount, signs, and shows the signed transaction as an animated QR
 code. For multisig it does what menu 10 does: it lays a seed's key out for a multisig wallet in Sparrow, keeps the
 multisig wallets read from Sparrow's QR code or exported file (as the same `.multisig` files), and signs their
-payments as one of their cosigners.
+payments as one of their cosigners. For silent payments it does what menu 5 (its second wallet) and menu 6 do: the
+silent payment wallet for Sparrow, and signing payments to and from silent payment addresses.
 
 How it is made:
 
@@ -634,9 +635,9 @@ this version's, or whose code is from any other library than those.
 
 ### Automated tests
 
-**176 automated tests** (`cargo test --workspace --locked`):
+**200 automated tests** (`cargo test --workspace --locked`):
 
-* **71 for the core library:** backup tamper detection on every bit; a backup's QR code with its name line, still
+* **90 for the core library:** backup tamper detection on every bit; a backup's QR code with its name line, still
   read as the backup exactly the way earlier versions read it; BIP39/32/44/49/84/86 test vectors; BIP380 descriptor
   checksums; the wallet for Sparrow as a UR crypto-output named for its keystore, its fields rebuilding BIP84's xpub,
   with each address type's tags and a test network's mark; PSBT signing with signature verification for SegWit v0
@@ -651,7 +652,16 @@ this version's, or whose code is from any other library than those.
   taking animated parts in any order; and a small strict CBOR reader. BBQr: codes made by Coinkite's reference code
   read in all three encodings, in any order and with repeats; a code that would unpack to more than 16 MB refused; a
   BBQr transaction and a BBQr descriptor taken by the scanners, and a finished transaction passed over. The network
-  found from a transaction's key paths (for both programs).
+  found from a transaction's key paths (for both programs). Silent payments: BIP 352's own test vectors (29 for
+  sending, from every kind of input, and 30 for receiving: the addresses with their labels, and the keys that spend
+  what was found), BIP 374's (14 proofs made, 17 checked) and BIP 375's (43 PSBTs: the 13 that can be finalized
+  checked by a signer that holds none of their keys, and completed again by one that holds them all, with the same
+  shares and scripts and proofs that verify; each of the 23 invalid ones refused, for its own reason; and a signer
+  that holds one of two inputs adding its share and checking the other's proof); payments to silent payment addresses
+  as Sparrow sends them (PSBT version 2, the outputs without scripts), signed, with each output found again by its
+  receiver's scan key and the signatures checked; several outputs to one address, k counted by spend key; spending
+  what the wallet's address received, its BIP 340 signature checked, and a wrong or missing tweak refused; a plain
+  PSBT of version 2 signed and given back as version 2; and silent payment fields in a PSBT of version 0 refused.
 * **32 unit tests of the command-line program:** a PNG encoder read back by a decoder written for the test; the web
   page; the outline and progress bar drawn on the preview; a whole transaction rebuilt from pictures; the pipes to
   stand-in ffmpeg and ffplay programs; a preview that fails or is missing; both terminal QR styles, with the full one
@@ -664,7 +674,7 @@ this version's, or whose code is from any other library than those.
   reading Linux routing tables, macOS `route` output and Windows `route print` output in English and Spanish; a
   virtual machine recognised from its firmware description (and real computers not); Windows registry values; a
   scanned backup matched to its file; and which files of an earlier version go into the cosigner keys folder.
-* **32 end-to-end tests of the real program:** among them that SeedLock works only offline (online, and where it
+* **35 end-to-end tests of the real program:** among them that SeedLock works only offline (online, and where it
   cannot tell, every command stops before it asks anything, with exit code 3, and so does the menu, while `--help` and
   `--version` still answer); `sign --scan` through a stand-in ffmpeg; signing without `--network` (a test-network
   transaction is recognised and shown with testnet addresses, a mainnet one is called real bitcoin, `--network` still
@@ -675,6 +685,9 @@ this version's, or whose code is from any other library than those.
   alone; a new backup's QR code (`--qr`, as menus 1 and 2 show it) saved as that picture too, and where it is said
   before the code is shown, in menu 8 as well; menu 5's QR picture read back as exactly the UR crypto-output that
   names the keystore after the backup, also written in the saved text file, with the descriptor to paste still shown;
+  menu 5's silent payment wallet, its QR picture read back as the `sp()` descriptor; `info --silent-payments` on
+  mainnet and signet, and another account refused; a payment to a silent payment address signed from its file, its
+  output the one the receiver finds;
   a backup scanned from a named QR code, through a stand-in ffmpeg, giving its name to the files made from it and to
   the keystore; the version in the menu's title, above the menu, and from `--version`; the same version everywhere the
   README and the guides give it; the same release key fingerprint everywhere they give it, which is also the
@@ -707,7 +720,7 @@ this version's, or whose code is from any other library than those.
   in view that cannot be read, and a dense one too damaged to read, both noticed as such; where a code is, also in a
   soft picture; a picture whose size does not fit its bytes; and made codes read back, all of an animation the same
   size.
-* **19 for the phone app's library** (`seedlock-ffi`): a backup opens with its password only; new seeds and their
+* **21 for the phone app's library** (`seedlock-ffi`): a backup opens with its password only; new seeds and their
   backups, reopened; dice rolls in dice-only mode give the seed that SeedSigner makes from them (worked out separately
   in Python); typed words checked and compared; backup names follow the program's rules; a backup's QR code carries
   its name and still reads as the backup, the way earlier readers read it; the wallet for Sparrow equals BIP84's test
@@ -724,7 +737,9 @@ this version's, or whose code is from any other library than those.
   the wallet is not on the phone, and, after each signature, how many it has and how many more it needs; the
   fingerprints of the wallets a transaction is for; a legacy wallet's payment, whose network comes from the wallet;
   and Sparrow's animated `crypto-output` code, the descriptor as text and a Taproot wallet's code, read through the
-  camera scanner.
+  camera scanner. Silent payments: the wallet for Sparrow on mainnet and a test network; a payment to a silent payment
+  address as Sparrow sends it, reviewed and signed, its output the one the receiver finds, and its animated QR code
+  read back as the same PSBT of version 2.
 
 ### Independent implementations agree
 
@@ -734,8 +749,15 @@ All re-runnable, see `tools/`:
   passwords, and a known-answer vector is pinned.
 * `crosscheck.py` compares fingerprints, xpubs, descriptors and hundreds of addresses on random seeds (with and without
   passphrases; all four address types; mainnet and testnet) with `bip-utils` and `embit`.
-* `crosscheck_psbt.py` has `embit` build a PSBT, SeedLock sign it, and `embit` verify the signature.
+* `crosscheck_psbt.py` has `embit` build a PSBT, SeedLock sign it, and `embit` verify the signature; then the silent
+  payments through the program (`info --silent-payments`, a payment to a silent payment address and a spend of one
+  received, as Sparrow sends them), checked by the Python half of `android/jvm-check` (below).
 * `crosscheck_backup.py` compares `--dice-only` with SeedSigner's `sha256(rolls)` method.
+* `android/jvm-check` works out the silent payments again in plain Python (below,
+  [The phone app, checked on a computer](#the-phone-app-checked-on-a-computer)).
+* By hand, BIP 375's own validator (`bip-0375/test_runner.py` in bitcoin/bips, with its `validate_bip375_psbt`) passes
+  the PSBTs that SeedLock signed in its tests, except the one with several outputs to one silent payment address:
+  there the validator counts k in output order, against the BIP's text (see [Silent payments](#silent-payments)).
 
 ### The interactive experience
 
@@ -772,7 +794,9 @@ unset, the compact style and no note.
 * menu 5's fingerprint, `m/84'/...` derivation, xpubs of all four address types and first address equal `embit`'s,
   on mainnet (found from the wallet's own transaction) and on a test network (after the one question); its descriptor
   checksum agrees with BIP380's reference code; the saved QR picture, a UR crypto-output, is read by `urtypes` (the
-  library SeedSigner uses) as `embit`'s own account key with its origin, its keystore named after the backup;
+  library SeedSigner uses) as `embit`'s own account key with its origin, its keystore named after the backup; and its
+  silent payment wallet (menu 5, then 2): the address and the `sp()` descriptor are what `embit`'s keys give (BIP 352,
+  392, 380), on mainnet and a test network, and its saved QR picture reads back as that descriptor;
 * the optional browser page is checked by rasterising every QR picture on it and rebuilding the signed PSBT with the
   Foundation UR library, by running its script in a real DOM (jsdom; a negative control proves that the check catches
   the bug an earlier version had, where a script cannot change the class of an SVG element) and by simulating its
@@ -840,7 +864,14 @@ checked on a computer:
   QR code is byte for byte the `crypto-account` that `urtypes` writes for that key; the wallet's payment, which names
   its three cosigners' fingerprints, refused while the wallet is not on the phone, then reviewed and signed by two of
   its cosigners in turn, each signature followed by how many it has; and `embit` verifies both signatures over its own
-  signature hash.
+  signature hash. Silent payments, worked out again in Python with plain arithmetic on the curve, nothing shared with
+  SeedLock's code: the wallet's silent payment address and its `sp()` descriptor for Sparrow are what `embit`'s keys
+  give (BIP 352, 392, and BIP 380's checksum); a payment to someone's silent payment address, made the way Sparrow
+  sends it (a PSBT of version 2 without the outputs' scripts), reviewed, signed and read back through the scanner,
+  where the receiver finds its payment with its scan key and the wallet its change; each ECDH share is the input's key
+  times the scan key, and its DLEQ proof verifies (BIP 374); `embit` verifies the signature over the transaction with
+  the outputs SeedLock worked out; and a payment that spends a silent payment the wallet received, whose BIP 340
+  signature `embit` verifies over its own taproot signature hash, its change found by the wallet.
 * The wallet's QR code for Sparrow, for all four address types on mainnet and a test network, read once with Sparrow's
   own UR library (hummingbird, built from its source) the way Sparrow's scanner reads it: each gives the right address
   type, the key's origin and the backup's name as the keystore's label.
@@ -958,15 +989,38 @@ By SeedLock's users:
   On real computers, offline: the Linux program; the Windows program, made with the MinGW tools; and the Mac program,
   linked by zig, on a Mac with an Apple chip. They start, show the version, open a backup and sign; and the phone app
   was built and installed over the earlier one as before.
-* **Version 0.3.2, the phone app built reproducibly:** `tools/build-release.sh` built it in the fixed build environment
-  together with the programs, and built them again to the same SHA-256; `tools/sign-apk.sh` signed it with SeedLock's
-  Android key, and `check-apk` found it byte for byte that build with its signature added; it installed over the
-  earlier app, with the backups kept, on two phones. And what keyboards keep: on the Xiaomi Mi 8 with Gboard,
+* **Version 0.3.2, the phone app built reproducibly:** `tools/build-release.sh` built it in the fixed build
+  environment together with the programs, and built them again to the same SHA-256; `tools/sign-apk.sh` signed it with
+  SeedLock's Android key, and `check-apk` found it byte for byte that build with its signature added; it installed
+  over the earlier app, with the backups kept, on two phones. And what keyboards keep: on the Xiaomi Mi 8 with Gboard,
   SeedLock emptied the clipboard after the paste (its message said so), yet for about 16 seconds the password could
   still be pasted in another app, and from Gboard's own clipboard; on a Samsung phone with Samsung's keyboard, it
-  could still be pasted too. Hence autofill for a backup's password. A password typed by hand into the password
-  window was not offered to the password manager to save, the message after a paste was the new one, and the Linux
-  program built there shows 0.3.2.
+  could still be pasted too. Hence autofill for a backup's password: on the Samsung phone, Bitwarden filled it in, and
+  so did AliasVault once its entry had a username (it offers no entry without a username or an email); after that, the
+  password could not be pasted in another app, nor was it in the keyboard's clipboard. A password typed by hand into
+  the password window was not offered to the password manager to save, the message after a paste was the new one, and
+  the Linux program built there shows 0.3.2. The release, checked on another computer: the signature of its checksum
+  list (the release key) and the checksums; its three programs (`check-programs`); and its app, signed with SeedLock's
+  certificate (the signature checked by `apksigtool` too), whose contents without the signature are what
+  `check-apk --unsigned` asks of the app. With its signature taken off there (`seedlock-tools unsigned-apk`), the
+  app downloaded from the release has the same SHA-256 as the unsigned app in `dist` on the computer that built it
+  in the fixed build environment: `c8f86610bfcdc9b1ab035713c311416267dfa0d7bd511a2c0ed207859cf92b53`.
+* **Version 0.4.0, silent payments** (with Sparrow 2.5 or later; on testnet, then on mainnet): the silent payment
+  wallet, from menu 5 and from the phone, imported into Sparrow by its QR code, which shows the same silent payment
+  address; payments
+  from the usual wallet to that address (shown as going to the wallet's own silent payment address, nothing leaving
+  the wallet) and to another wallet's silent payment address (shown as sent to someone else), signed on the computer
+  and on the phone: Sparrow took the signed transactions, which it accepts only when the outputs it works out again
+  from SeedLock's ECDH shares and proofs are the ones in them, and broadcast them; and payments without silent
+  payments, as before. Sparrow calls the imported keystore "Keystore 1": it takes no name from a silent payment
+  wallet's descriptor, whether text or QR code (in its code, the import of an `sp()` descriptor sets no labels), so
+  SeedLock says how to name it. On mainnet, with Sparrow connected to a server that supports silent payments: a
+  payment to the silent payment address, which Sparrow found, then spent with SeedLock's signature (its input shown
+  as `yours (silent payment, m/352'/0'/0'/0'/0)`, the network found from the transaction) and broadcast. Autofill of
+  a backup's password: Bitwarden later filled it in on the Xiaomi Mi 8 too, and with autofill, nothing was on the
+  clipboard on either phone (Bitwarden on both, AliasVault on the Samsung one). Saving a new seed's generated
+  password in a password manager on the phone, which is offline: AliasVault saves it, Bitwarden cannot (offline, its
+  apps can only read the vault), so the app now says to type the 8 words into Bitwarden on another device instead.
 * Also confirmed: reading a backup from its QR code; the online warning on Linux; and multisig with Sparrow (2 of 3,
   native SegWit): the keys typed in or scanned by Sparrow's xpub button, the wallet's descriptor from a file, from an
   animated UR code and from static BBQr codes at two densities (in good light), and its transactions signed by one
@@ -987,15 +1041,10 @@ You should know these:
    photos of Sparrow's exact codes on a screen).
 6. The phone app (a preview), on a real phone: adding a backup or a multisig wallet from its file (the same file
    picker as a transaction's file, which works), nested and legacy multisig wallets, and other phones and Android
-   versions than the Xiaomi Mi 8 with Android 10; see
+   versions than the two it was tried on (a Xiaomi Mi 8 with Android 10, and a Samsung phone); see
    [The phone app, checked on a computer](#the-phone-app-checked-on-a-computer).
 7. The reproducible build: the programs' build with Docker Desktop on a Mac or on Windows (`build-release.ps1`), and
    the Mac program on a Mac with an Intel chip.
-8. New in 0.3.2: a backup's password filled in by a password manager on the phone (autofill). On the Xiaomi Mi 8,
-   Bitwarden offered the entry, but choosing it filled in nothing: Xiaomi's permission for Bitwarden to display
-   pop-up windows while running in the background was most likely missing (without it, Bitwarden's window that
-   completes the fill cannot open). On a Samsung phone, AliasVault offered no entry: it offers only entries with a
-   username or an email, and the entry had neither.
 
 Menu 9 and `seedlock camera` let anyone check their own camera setup.
 
@@ -1124,8 +1173,41 @@ use: the transaction is split into small pictures shown in a loop, and the scann
 static code (`--static-qr`, small transactions only) is available for scripts, but it is much denser than one animated
 picture, so it can never be as easy to read. A cosigner key is a `ur:crypto-account` (as SeedSigner writes it), and
 menu 5's wallet a `ur:crypto-output`, which Sparrow's wallet import reads and which also names the keystore (before
-0.2.0 it was the plain output descriptor text, which Sparrow reads too). A backup's code is its text form with the
+0.2.0 it was the plain output descriptor text, which Sparrow reads too). The silent payment wallet for Sparrow is its
+`sp()` descriptor as plain text, which Sparrow's wallet import reads too. A backup's code is its text form with the
 backup's name on a second line ([FORMAT.md, section 6](FORMAT.md#6-text-form)).
+
+### Silent payments
+
+How SeedLock signs them: BIP 352 for the addresses and the outputs, BIP 374 for the proofs, BIP 375 for paying, BIP
+376 for spending, BIP 392 for the wallet for Sparrow, and BIP 370 for the PSBTs of version 2 that Sparrow uses for
+them.
+
+* **Keys.** The scan key is at `m/352'/coin'/0'/1'/0` and the spend key at `m/352'/coin'/0'/0'/0` (account 0), as BIP
+  352 recommends and Sparrow derives them. The wallet for Sparrow, `sp([fingerprint/352h/coinh/0h]spscan1q...)`,
+  holds the scan private key and the spend public key (`tspscan` on the test networks): it finds payments, but cannot
+  spend them. Regtest addresses start with `sprt`, as in Bitcoin Core and Sparrow (BIP 352 names only `sp` and `tsp`).
+* **PSBT version 2.** SeedLock reads them (`psbt_v2.rs`), reviews and signs them in their version-0 form, and gives
+  them back as version 2, with what it added. A PSBT of version 0 with silent payment fields is refused.
+* **Paying.** Sparrow's watch-only wallet cannot work out where a payment to a silent payment address goes: that takes
+  the inputs' private keys. So those outputs come without a script, and SeedLock works them out (`psbt_silent.rs`).
+  When it holds the keys of all the inputs that count (P2TR without BIP 341's NUMS key, P2WPKH, P2SH-P2WPKH and
+  P2PKH, not with an uncompressed key), it adds one global ECDH share and its DLEQ proof for each scan key, as Sparrow
+  does. With other people's inputs, it adds a share for each of its own, and first checks the others' shares (or a
+  global one) by their proofs, against public keys that their scripts must commit to. Then the scripts, the
+  "modifiable" flags cleared (the scripts depend on every input), and the signatures.
+* **Which k.** The outputs to one scan key get k = 0, 1, 2... by their silent payment code (the spend key), then by
+  their index, as BIP 375 says and Sparrow does. BIP 375's own validator counts k in output order instead, and so does
+  one of its test vectors ("two sp outputs - output 0 uses label=3 / output 1 uses label=1"): SeedLock's tests expect
+  that vector refused. The receiver finds its outputs either way, since it tries every k against every output.
+* **The vectors' P2WPKH inputs** spend scripts that are not those of their keys; BIP 375's validator does not compare
+  them. SeedLock does (a wrong key there would make it pay an output that nobody finds), so its tests give those
+  inputs the scripts of their keys first.
+* **Spending.** An input with a tweak is the wallet's when its spend key plus the tweak gives exactly the key of the
+  output it spends; it is then signed as a taproot key-path spend (BIP 340). An input that says it is the wallet's
+  (by its spend key or its fingerprint) but whose tweak does not give that key, or that has no tweak, is refused.
+* **Limits.** Account 0 only. A payment whose silent payment outputs need other signers' shares that are not there
+  yet is refused, not partly prepared.
 
 ### Backup format
 
@@ -1138,7 +1220,8 @@ this program.
 ## Code layout
 
 ```
-crates/seedlock-core      the library: mnemonic, entropy, backup format, wallet derivation, multisig, PSBT, QR frames (no I/O)
+crates/seedlock-core      the library: mnemonic, entropy, backup format, wallet derivation, multisig, PSBT (versions 0
+                          and 2), silent payments, QR frames (no I/O); tests/data: silent payment test vectors
 crates/seedlock-cli       the `seedlock` program: prompts, menu, files, QR pictures and pages, camera scanning, and the
                           online check that keeps it from working on a computer that is not offline (offline.rs)
 crates/seedlock-qr        reading QR codes in camera pictures, and making QR codes (no I/O; used by both programs)
@@ -1156,6 +1239,7 @@ docs/logo/                the logo (SVG and PNG files) and make_logo.py, which d
 install.sh                builds the program and installs it, so that `seedlock` starts it from any folder
 LICENSE                   the MIT license (for everything except the logo)
 tools/                    recover.py, crosscheck*.py, interactive_test.py, qr_flow_test.py, multisig_test.py, audit-offline.sh,
+                          silent_vectors.py (writes the silent payment test vectors from bitcoin/bips),
                           build-release.sh and .ps1 (build the ready-made programs and the phone app of a release),
                           sign-apk.sh and .ps1 (sign that app with SeedLock's Android key)
 tools/reproducible/       the fixed build environment: Dockerfile, build-programs.sh, build-app.sh, zig.sh
@@ -1167,23 +1251,25 @@ seedlocker transactions/  made where you run seedlock: signed files of scanned t
 
 ## Limitations and roadmap
 
-Today: the English word list only; multisig as native, nested or legacy SegWit (no Taproot multisig); the unsigned
-PSBT comes in as a file or by camera (animated `ur:crypto-psbt`, BBQr, or a plain PSBT in one QR code), and the
-signed one leaves as a file or as an animated QR code; a command-line program, and an Android app in preview.
+Today: the English word list only; multisig as native, nested or legacy SegWit (no Taproot multisig); silent
+payments for single-signature wallets, account 0; the unsigned PSBT (version 0 or 2) comes in as a file or by camera
+(animated `ur:crypto-psbt`, BBQr, or a plain PSBT in one QR code), and the signed one leaves as a file or as an
+animated QR code; a command-line program, and an Android app in preview.
 
 **Phone.** The Android app is a preview (see [The phone app](#the-phone-app-preview)): backups, the wallet for
 Sparrow, signing with the camera, and multisig (cosigner keys, multisig wallets, signing as a cosigner). From 0.2.1 on
 it is in the releases, signed with SeedLock's own Android key, with its checksum in the signed list. Next steps: more
-tests on real phones; an iPhone app from the same library (UniFFI writes Swift as well). The phone and the
-command-line program write the same backups and the same QR codes (the backup's name in its QR code, the wallet for
-Sparrow as a QR code that names the keystore), so either one opens what the other made (use `--kdf light` for very old
-phones).
+tests on real phones; a new seed's password handed to the password manager on the phone by autofill (Android's offer
+to save it) instead of the clipboard, of which keyboards keep a copy; an iPhone app from the same library (UniFFI
+writes Swift as well). The phone and the command-line program write the same backups and the same QR codes (the
+backup's name in its QR code, the wallet for Sparrow as a QR code that names the keystore), so either one opens what
+the other made (use `--kdf light` for very old phones).
 
-**Silent payments (next, 0.4.0).** Sparrow 2.5 has wallets for silent payments (BIP 352) with offline signers: a
-static address that payers use again and again, while each payment lands on an address of its own that nobody else
-can link to it. SeedLock is to give such a wallet to Sparrow (an `sp()` descriptor, BIP 392), show its address, and
-sign its payments, on the computer and on the phone: spending what it received (BIP 376) and paying silent payment
-addresses, its own change included (BIP 375), all in PSBT version 2 (BIP 370), which Sparrow uses for these.
+**Silent payments.** From 0.4.0 on, on the computer and on the phone: the silent payment wallet for Sparrow 2.5 (an
+`sp()` descriptor, BIP 392) and its address, and signing its payments: spending what it received (BIP 376) and paying
+silent payment addresses, its own change included (BIP 375), in PSBTs of version 2 (BIP 370); see
+[Silent payments](#silent-payments). Possible next steps: other accounts than 0; and, for payments with several
+signers, a PSBT whose other inputs' shares are not there yet prepared with SeedLock's own shares, without signing.
 
 **Reproducible builds.** From 0.3.1 on, the computer programs are built reproducibly, and from 0.3.2 on the phone app
 too (see [Reproducible builds](#reproducible-builds)). Possible later steps: Gradle checking the app's libraries by

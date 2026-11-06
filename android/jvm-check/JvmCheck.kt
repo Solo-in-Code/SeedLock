@@ -208,5 +208,59 @@ fun main(args: Array<String>) {
             File(dir, "ms_signed.b64").writeText(both.transaction.toBase64())
         }
     }
+
+    // 7. Silent payments: the wallet's silent payment wallet for Sparrow, which Python works out again from
+    //    embit's keys; and a payment to someone's silent payment address, made the way Sparrow sends it (a PSBT
+    //    of version 2, whose outputs the signer works out), reviewed, signed and read back through the
+    //    scanner. Python then finds the outputs with the receivers' scan keys, checks the proofs, and embit
+    //    the signature.
+    Seed.fromWords(File(dir, "words.txt").readText().trim()).use { own ->
+        own.wallet(ByteArray(0), Net.MAINNET).use { wallet ->
+            val sp = wallet.silentPayments("embit check")
+            check(
+                sp.address.startsWith("sp1q") && sp.descriptor.startsWith("sp([${wallet.fingerprint()}/352h/0h/0h]spscan1q") &&
+                    sp.derivation == "m/352'/0'/0'" && sp.spscanName == "spscan" && sp.descriptor.contains(sp.spscan) && sp.label == "embit check",
+                "the silent payment wallet for Sparrow: ${sp.address.take(12)}..., sp([${wallet.fingerprint()}/352h/0h/0h]spscan1q...)"
+            )
+            File(dir, "sp_wallet.txt").writeText(sp.address + "\n" + sp.descriptor + "\n")
+            val spTx = Transaction.fromBytes(File(dir, "sp.psbt").readBytes())
+            check(spTx.hasSilentPayments() && spTx.networkHint() == NetworkHint.MAINNET, "a payment to a silent payment address, read from its file (version 2, mainnet)")
+            val r = wallet.review(spTx, emptyList())
+            check(
+                r.outputs[0].external && r.outputs[0].address.startsWith("sp1q") && r.outputs[0].silentPayment!!.startsWith("bc1p"),
+                "review: output 0 goes to the silent payment address, on the blockchain ${r.outputs[0].silentPayment!!.take(12)}..."
+            )
+            check(
+                !r.outputs[1].external && r.outputs[1].note.startsWith("change back to you, to your own silent payment address"),
+                "review: output 1 is change to the wallet's own silent payment address"
+            )
+            check(r.fee == "0.00001000" && r.sending == "0.00060000" && r.inputsToSign == 1, "review: fee 0.00001000, leaving 0.00060000, 1 input to sign")
+            val signed = wallet.sign(spTx, emptyList())
+            check(signed.inputs == 1, "signed 1 input")
+            File(dir, "sp_signed.b64").writeText(signed.transaction.toBase64())
+            val codes = qrAnimation(signed.transaction.qrFrames())
+            QrScanner(ScanTarget.TRANSACTION).use { scanner ->
+                var done = false
+                for (i in 0 until codes.size * 2) {
+                    val (w, h, luma) = picture(codes[(i + 2) % codes.size])
+                    if (scanner.addPicture(w, h, luma).done) {
+                        done = true
+                        break
+                    }
+                }
+                check(done && scanner.transaction()!!.toBase64() == signed.transaction.toBase64(), "read back through the scanner: the same signed version 2 PSBT")
+            }
+
+            // spending a silent payment the wallet received (BIP 376)
+            val spend = Transaction.fromBytes(File(dir, "sp_spend.psbt").readBytes())
+            check(spend.inputFingerprints() == listOf(wallet.fingerprint()) && spend.networkHint() == NetworkHint.MAINNET, "spending a silent payment received: the wallet ${wallet.fingerprint()} signs it, on mainnet")
+            val rs = wallet.review(spend, emptyList())
+            check(rs.inputs[0].mine && rs.inputs[0].owner == "yours (silent payment, m/352'/0'/0'/0'/0)", "review: the input is yours: ${rs.inputs[0].owner}")
+            check(rs.outputs[0].external && rs.outputs[1].note.startsWith("change back to you, to your own silent payment address"), "review: output 0 leaves the wallet, output 1 is its silent payment change")
+            val spent = wallet.sign(spend, emptyList())
+            check(spent.inputs == 1, "signed the silent payment it spends")
+            File(dir, "sp_spend_signed.b64").writeText(spent.transaction.toBase64())
+        }
+    }
     if (failures > 0) exitProcess(1)
 }

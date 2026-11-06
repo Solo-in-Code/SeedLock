@@ -22,11 +22,12 @@ Sparrow 2.5; where older versions name something differently, this guide says so
 6. [More about backups: menus 2, 3, 4, 7 and 8](#more-about-backups-menus-2-3-4-7-and-8)
 7. [Set up Sparrow: menu 5](#set-up-sparrow-menu-5)
 8. [Sign a payment: menu 6](#sign-a-payment-menu-6)
-9. [Multisig wallets: menu 10](#multisig-wallets-menu-10)
-10. [QR codes and the camera: menu 9](#qr-codes-and-the-camera-menu-9)
-11. [Security advice](#security-advice)
-12. [The command line](#the-command-line)
-13. [Opening a backup without SeedLock](#opening-a-backup-without-seedlock)
+9. [Silent payments](#silent-payments)
+10. [Multisig wallets: menu 10](#multisig-wallets-menu-10)
+11. [QR codes and the camera: menu 9](#qr-codes-and-the-camera-menu-9)
+12. [Security advice](#security-advice)
+13. [The command line](#the-command-line)
+14. [Opening a backup without SeedLock](#opening-a-backup-without-seedlock)
 
 ## Words used in this guide
 
@@ -83,7 +84,7 @@ Do this on the online computer, before you copy the program to the offline one:
    or shows another fingerprint, do not use the download.
 5. Then compare the program's fingerprint with `SHA256SUMS.txt`, as the README says (Part 1, Way A, step 2).
 
-The phone app, `seedlock-0.3.2-android.apk`, is in the same list and is checked the same way
+The phone app, `seedlock-0.4.0-android.apk`, is in the same list and is checked the same way
 ([android/README.md](../android/README.md), Installing the ready-made app).
 
 The same fingerprint is in the README. If you know SeedLock's maintainer from somewhere else, such as a website or a
@@ -146,7 +147,7 @@ Type a number and press Enter. After each task SeedLock comes back to the menu; 
 When SeedLock asks a question, the answer in square brackets is what you get by pressing Enter alone: `[24]`, `[1]`.
 In a yes-or-no question, `[y/N]` means that Enter answers no, and `[Y/n]` that Enter answers yes.
 
-The menu's title shows SeedLock's version: `=== SeedLock 0.3.2: offline Bitcoin seed tool ===`.
+The menu's title shows SeedLock's version: `=== SeedLock 0.4.0: offline Bitcoin seed tool ===`.
 `./seedlock --version` (Windows: `.\seedlock.exe --version`) shows it too.
 
 ### SeedLock works only offline
@@ -354,7 +355,9 @@ payments: the master fingerprint, the derivation and the xpub. Menu 5 shows them
    `seedlocker transactions`, holds a transaction of this very wallet (SeedLock checks its fingerprint): the newest
    one says both. Without one, SeedLock asks one question, `Is it for real bitcoin (mainnet) or for testing (testnet
    or signet)? Type m or t [m]`, and shows Native Segwit, the usual address type.
-3. SeedLock shows:
+3. `Which wallet do you want to set up in Sparrow?`: press Enter (1) for your usual wallet, as described here. 2 is
+   the silent payment wallet (see [Silent payments](#silent-payments)).
+4. SeedLock shows:
    * **Sparrow's three fields:** *Master fingerprint*, *Derivation* (written the way Sparrow's field wants it, for
      example `m/84'/0'/0'`, not the descriptor notation `84h/0h/0h`, which that field does not accept), and the
      *xpub*.
@@ -362,9 +365,9 @@ payments: the master fingerprint, the derivation and the xpub. Menu 5 shows them
    * The same wallet with the other address types (Taproot, Nested Segwit, Legacy), each with its derivation and
      xpub, named as in Sparrow's *Script Type* list.
    * **The first five receive addresses.** Sparrow must show exactly these.
-4. SeedLock saves all of it next to your backups, and says where: `<name>-for-sparrow.txt` (with the QR code's text
+5. SeedLock saves all of it next to your backups, and says where: `<name>-for-sparrow.txt` (with the QR code's text
    at the end) and the QR code as `<name>-for-sparrow-qr.png`.
-5. `Show the wallet as a QR code for Sparrow to scan? [Y/n]`: press Enter, and the wallet appears as a QR code in a
+6. `Show the wallet as a QR code for Sparrow to scan? [Y/n]`: press Enter, and the wallet appears as a QR code in a
    window of its own. The code is in Sparrow's own format (a UR crypto-output, the same as SeedLock's phone app
    shows), and besides the wallet it carries a name for Sparrow's keystore: the backup's name, cut to 16 characters,
    the most that Sparrow allows (SeedLock says so when it cuts it).
@@ -449,9 +452,82 @@ A transaction is refused, with the reason, when:
 * it asks for any kind of signature other than the usual one (SIGHASH_ALL);
 * an input claims to be yours but is neither a plain single-signature input of your seed nor an input of a
   registered multisig wallet that rebuilds exactly its script;
-* it is a multisig wallet's transaction and that wallet is not registered ([menu 10](#multisig-wallets-menu-10)).
+* it is a multisig wallet's transaction and that wallet is not registered ([menu 10](#multisig-wallets-menu-10));
+* it pays a silent payment address, and an input is of a SegWit version above 1, or none of its inputs is of a single
+  key (P2WPKH, P2TR, P2SH-P2WPKH or P2PKH), or another signer's proof is wrong, or an output already has a script
+  that is not the one of the silent payment address it pays (see [Silent payments](#silent-payments));
+* an input says it is a silent payment to your wallet, but its tweak does not give the key of the output it spends.
 
 A transaction for another network than the one found or chosen is flagged in the review.
+
+## Silent payments
+
+A silent payment address (BIP 352) is one address that you can give to everyone, as often as you like, for example on
+a web page. Each payment to it still lands on an address of its own on the blockchain, which the payer's wallet works
+out, and nobody but you can tell that these payments are yours, or link them to each other. Sparrow 2.5 and later use
+them, with SeedLock as the signer. A silent payment address starts with `sp1q` (`tsp1q` on the test networks) and is
+116 characters long.
+
+### Set up the silent payment wallet in Sparrow
+
+1. **In SeedLock, menu 5.** Choose the backup, answer the passphrase question, type the password, and say whether it
+   is for real bitcoin or for testing, as for the usual wallet ([Set up Sparrow](#set-up-sparrow-menu-5)). At `Which
+   wallet do you want to set up in Sparrow?`, type `2`.
+2. SeedLock shows:
+   * **Your silent payment address**, to give to the people who pay you.
+   * **The wallet for Sparrow** in one line, `sp([fingerprint/352h/0h/0h]spscan1q...)#checksum` (BIP 392), and the
+     same as a QR code; or as three fields: *Master fingerprint*, *Derivation* (`m/352'/0'/0'`) and *spscan*.
+
+   It saves both next to your backups: `<name>-silent-payments-for-sparrow.txt` and its QR code as
+   `<name>-silent-payments-for-sparrow-qr.png`.
+3. **In Sparrow:** choose **File > Import Wallet**, then **Output Descriptor**, and click **Scan...** (hold the camera
+   toward SeedLock's QR code) or paste the line. Or choose **File > New Wallet**, *Policy Type* "Single Signature SP
+   (Silent Payments)", the keystore **Watch Only Wallet**, and type the three fields. When Sparrow asks for the
+   wallet's name, type the backup's name.
+4. Sparrow's **Receive** tab must show the same silent payment address as SeedLock.
+5. Sparrow calls the wallet's keystore "Keystore 1": unlike the usual wallet's QR code, a silent payment wallet's
+   descriptor gives Sparrow no name for it (Sparrow takes none from it). To give it the backup's name too, open the
+   wallet's **Settings** tab, type the name that SeedLock shows (cut to the 16 characters that Sparrow allows) in the
+   keystore's *Label* field, and click **Apply**.
+
+**What the wallet for Sparrow holds.** Its `spscan` key is your scan key: with it, Sparrow finds the payments to your
+address. It cannot spend them: that takes your seed, which stays in SeedLock. But whoever has it can see every payment
+you receive, so keep it as private as the wallet itself.
+
+**Finding the payments.** Sparrow finds the payments to a silent payment address only through a server that supports
+silent payments (not through Bitcoin Core), and it asks from which date to look: give the day you first gave out the
+address.
+
+### Pay a silent payment address
+
+In your usual wallet in Sparrow (a single-signature wallet), paste the `sp1q...` address on the **Send** tab, like any
+other address, and sign in SeedLock, menu 6, as always. Sparrow cannot work out the address that the payment gets on
+the blockchain (that takes your private keys), so SeedLock does it:
+
+* The review shows the silent payment address, and under it the address on the blockchain: `(a silent payment: on
+  the blockchain it is bc1p..., which only the receiver can tell is theirs)`. Check the silent payment address, all
+  of it, as any other.
+* With the signature, SeedLock adds what lets Sparrow check its work (BIP 375): for each silent payment address, a
+  share of the secret that the payment's address comes from (an "ECDH share", which reveals no key), with a proof
+  that it is right (BIP 374), and the outputs' scripts. Sparrow checks the proof when it reads the signed payment
+  back. The payment can then no longer be changed: its addresses depend on every input.
+
+### Spend what your silent payment address received
+
+In the silent payment wallet in Sparrow, prepare the payment as usual, and sign it in SeedLock, menu 6. The review
+shows its inputs as `yours (silent payment, m/352'/0'/0'/0'/0)`: SeedLock signs one only when its own key, with the
+payment's "tweak" that Sparrow found, gives exactly the key of the output it spends (BIP 376). The change goes back to
+your silent payment address (its change, with label 0): `change back to you, to your own silent payment address
+(verified from your seed)`.
+
+### Limits
+
+* Account 0, the one Sparrow uses.
+* A multisig wallet cannot pay a silent payment address: its inputs do not count for silent payments. Sparrow sends
+  silent payments from single-signature wallets only.
+* A payment with inputs of other people's wallets is signed only after they have added their shares; SeedLock then
+  checks their proofs.
+* The phone app does all of this too ([SeedLock for Android](../android/README.md)).
 
 ## Multisig wallets: menu 10
 
@@ -706,6 +782,7 @@ the commands, and `./seedlock sign --help` (or any other command) explains one.
 | `seedlock decrypt NAME` | Shows the words (menu 3). `--raw` prints only the words, for scripts |
 | `seedlock verify NAME [--fingerprint HEX] [--compare-words]` | Checks that a backup opens, without showing it (menu 4); optionally against a fingerprint or your paper words |
 | `seedlock info NAME [--network ...] [--script wpkh\|tr\|sh-wpkh\|pkh] [--passphrase]` | Fingerprint, xpub, descriptors and addresses (`--account`, `--change`, `--start`, `--count`) |
+| `seedlock info NAME --silent-payments [--network ...] [--passphrase]` | The silent payment address, and the wallet for Sparrow that finds the payments to it (menu 5, 2) |
 | `seedlock sign NAME (--psbt FILE \| --scan [--camera N]) [--network ...] [--passphrase] [--qr \| --qr-terminal \| --qr-browser \| --static-qr]` | Reviews and signs a payment from a file or the camera (menu 6) |
 | `seedlock inspect NAME` | A backup's encryption settings (no password needed) |
 | `seedlock qr NAME [--svg FILE]` | A backup and its name as a QR code, also saved as `NAME-qr.png` in the backups folder (menu 8) |

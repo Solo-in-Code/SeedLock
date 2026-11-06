@@ -1,11 +1,12 @@
 # SeedLock for Android (preview)
 
-The same SeedLock, as an app for an Android phone that stays offline: a spare phone in airplane mode
-takes the place of the offline computer. It opens the backups made on the computer (and the computer
-opens the phone's), lays the wallet out for Sparrow, reads transactions from Sparrow's QR code with the
-camera, shows you every address and amount, signs, and gives the signed transaction back as an animated
-QR code. It also creates new seeds and their backups, and signs as one of the cosigners of a multisig
-wallet (for example 2 of 3), as the computer's menu 10 does.
+The same SeedLock, as an app for an Android phone that stays offline: a spare phone in airplane mode takes
+the place of the offline computer. It opens the backups made on the computer (and the computer opens the
+phone's), lays the wallet out for Sparrow, reads transactions from Sparrow's QR code with the camera,
+shows you every address and amount, signs, and gives the signed transaction back as an animated QR code.
+It also creates new seeds and their backups, and signs as one of the cosigners of a multisig wallet (for
+example 2 of 3), as the computer's menu 10 does. And it does silent payments with Sparrow 2.5 or later, as
+the computer does: the silent payment wallet for Sparrow, and payments to and from it.
 
 **This is a preview.** Try it with a test wallet (testnet) or a small amount first. From version 0.2.1
 on, every release has the app ready-made, signed with SeedLock's own key; you can also build it yourself.
@@ -35,16 +36,16 @@ What makes it safe to use on a phone:
 On the online computer:
 
 1. **Download it.** On SeedLock's GitHub page, click **Releases** on the right. Under the newest release,
-   in its **Assets**, download `seedlock-0.3.2-android.apk` (the version may be newer) and
+   in its **Assets**, download `seedlock-0.4.0-android.apk` (the version may be newer) and
    `SHA256SUMS.txt`.
 2. **Check it,** as for the computer programs (the main README, Part 1, Way A, step 2). Open a terminal
    in the folder it was downloaded to and type the line for your computer:
 
    | Computer | Command |
    |---|---|
-   | Windows | `(Get-FileHash seedlock-0.3.2-android.apk).Hash` |
-   | Mac | `shasum -a 256 seedlock-0.3.2-android.apk` |
-   | Linux | `sha256sum seedlock-0.3.2-android.apk` |
+   | Windows | `(Get-FileHash seedlock-0.4.0-android.apk).Hash` |
+   | Mac | `shasum -a 256 seedlock-0.4.0-android.apk` |
+   | Linux | `sha256sum seedlock-0.4.0-android.apk` |
 
    The long number it shows must be exactly the one next to the file's name in `SHA256SUMS.txt`. If it is
    not, delete the file. To check that list's signature too, see the guide:
@@ -204,14 +205,15 @@ then. Until the phone is offline, its first screen shows only a message (it chec
    SeedLock test: `androidapp://org.seedlock.app.debug`). In SeedLock's password window, tap the password
    field and choose that entry. On a Xiaomi phone, Bitwarden also needs a permission of Xiaomi's, or
    choosing the entry fills in nothing: **Settings > Apps > Manage apps > Bitwarden > Other permissions >
-   Display pop-up windows while running in the background**. AliasVault offers only entries with a
-   username or an email: give the entry one (the backup's name, for example). Copy and paste works too:
-   copy the password in the password manager and come back to SeedLock within 5 minutes to paste it (the
-   prompt waits that long). Right after the paste, SeedLock empties the clipboard, checks a moment later
-   that it stayed empty, and says what it found. But a keyboard with a clipboard of its own keeps a copy
-   that no app can delete: on a Xiaomi Mi 8 with Gboard and on a Samsung phone with Samsung's keyboard,
-   the password could still be pasted in another app after SeedLock had emptied the clipboard. So use
-   autofill, or turn the keyboard's clipboard off (in Gboard: **Settings > Clipboard**).
+   Display pop-up windows while running in the background** (Bitwarden fills it in on a Xiaomi Mi 8 with
+   Android 10 and on a Samsung phone, and AliasVault on the Samsung phone). AliasVault offers
+   only entries with a username or an email: give the entry one (the backup's name, for example). Copy and
+   paste works too: copy the password in the password manager and come back to SeedLock within 5 minutes
+   to paste it (the prompt waits that long). Right after the paste, SeedLock empties the clipboard, checks
+   a moment later that it stayed empty, and says what it found. But a keyboard with a clipboard of its own
+   keeps a copy that no app can delete: on a Xiaomi Mi 8 with Gboard and on a Samsung phone with Samsung's
+   keyboard, the password could still be pasted in another app after SeedLock had emptied the clipboard.
+   So use autofill, or turn the keyboard's clipboard off (in Gboard: **Settings > Clipboard**).
 3. **Wallet for Sparrow**: in Sparrow on the online computer, **File > Import Wallet > Output Descriptor >
    Scan...** and hold the phone's screen to the camera. Sparrow must show the same fingerprint and the
    same first addresses as the phone. Sparrow names the wallet's keystore after the backup (its first
@@ -225,11 +227,13 @@ then. Until the phone is offline, its first screen shows only a message (it chec
    instead** gives the signed one back as a file.
 5. **Create a new seed** on the phone, then open its backup on the computer (copy the file, or show it as
    a QR code): SeedLock on the computer must open it with the same password and show the same fingerprint.
-   With a password manager on this phone, **Copy it** copies the generated password: paste it there,
-   save it, copy it back and come back to SeedLock within 5 minutes (it stays open meanwhile) to paste it
-   in: right after the paste, SeedLock empties the clipboard. Coming back without pasting, SeedLock empties
-   it if its own copy of the password is still on it. A keyboard with a clipboard of its own keeps a copy
-   anyway (see 2): turn it off, or type the password into the password manager by hand.
+   With a password manager on this phone, **Copy it** copies the generated password: paste it there, save
+   it, copy it back and come back to SeedLock within 5 minutes (it stays open meanwhile) to paste it in:
+   right after the paste, SeedLock empties the clipboard. Coming back without pasting, SeedLock empties it
+   if its own copy of the password is still on it. A keyboard with a clipboard of its own keeps a copy
+   anyway (see 2): turn it off, or type the password into the password manager by hand. The password
+   manager must be able to save while the phone is offline: AliasVault can, Bitwarden cannot (offline, its
+   apps only read the vault). With Bitwarden, type the 8 words into it on your everyday phone or computer.
 6. **Leave the app** in the middle of something (home button): coming back, SeedLock is on its first
    screen again. A screenshot of SeedLock shows nothing.
 7. **Its permissions:** in **Settings > Apps > SeedLock** (or **SeedLock test**) **> Permissions**, the
@@ -284,6 +288,22 @@ then. Until the phone is offline, its first screen shows only a message (it chec
     only offline, and why (airplane mode is off, or a network is connected). Turn airplane mode on again:
     the backups come back by themselves. Do the same while SeedLock asks for a password, or shows a new
     seed's words.
+14. **Silent payments** (from version 0.4.0 on, with Sparrow 2.5 or later; on testnet or signet first):
+    1. **The wallet for Sparrow.** Open the backup's **Wallet for Sparrow**, choose the network, and at
+       the bottom tap **Silent payment wallet**. In Sparrow: **File > Import Wallet > Output Descriptor >
+       Scan...**, and hold the phone's screen toward the camera. Sparrow's **Receive** tab must show the
+       same silent payment address as the phone (`tsp1q...` on a test network). To find payments, Sparrow
+       must be connected to a server that supports silent payments (not to Bitcoin Core). Sparrow calls
+       the wallet's keystore "Keystore 1": it takes no name from a silent payment wallet's descriptor, so
+       the phone says how to give the keystore the backup's name in Sparrow.
+    2. **Receive.** Pay that address from another wallet. Sparrow finds the payment.
+    3. **Spend it.** In the silent payment wallet in Sparrow, make a payment, and sign it on the phone
+       like any other (see **Sign a transaction** above). The input says "yours (silent payment,
+       m/352'/1'/0'/0'/0)", the change "change back to you, to your own silent payment address".
+    4. **Pay a silent payment address** from your usual wallet: in Sparrow, paste the address (the silent
+       payment wallet's, or someone else's) on the **Send** tab, and sign on the phone. The review shows
+       the silent payment address, and under it the address the payment gets on the blockchain. Sparrow
+       checks the phone's proof when it reads the signed payment, and broadcasts it.
 
 Tell what happened at each step, and what the phone showed when something did not work (its make and
 model, and the Android version from **Settings > About phone**).
@@ -298,9 +318,10 @@ model, and the Android version from **Settings > About phone**).
 * The library is built with the `phone` profile (in `Cargo.toml`): the release settings, except that a
   panic becomes an error that the app shows instead of closing it. `docs/DEVELOPMENT.md` (The phone app)
   says more, and `sh tools/audit-offline.sh` checks the app's permissions, libraries and Kotlin code.
-* `jvm-check/run.sh` checks that bridge on a computer, the way the app uses it: Kotlin calls the Rust
-  code through JNA, and embit (Python) independently checks the signatures it makes, of a payment and of
-  a 2-of-3 multisig payment signed by two of its cosigners.
+* `jvm-check/run.sh` checks that bridge on a computer, the way the app uses it: Kotlin calls the Rust code
+  through JNA, and embit (Python) independently checks the signatures it makes, of a payment, of a 2-of-3
+  multisig payment signed by two of its cosigners, and of silent payments, whose outputs and proofs Python
+  works out again.
 * `crates/seedlock-tools` is a helper for the computer that builds the app, never part of it:
   `build-rust.sh` runs it to write the license notices the app shows (`app/src/main/assets/notices.txt`,
   not kept in git), it checks the app that SeedLock's fixed build environment makes (`tools/reproducible`),

@@ -138,6 +138,9 @@ class ReviewScreen(
         for (output in review.outputs) {
             page.text("#${output.index}   ${output.amount} BTC   to:")
             page.code(output.address)
+            output.silentPayment?.let {
+                page.small("A silent payment: on the blockchain it is $it, which only the receiver can tell is theirs.")
+            }
             if (output.external) page.warning(output.note) else page.small(output.note)
         }
         page.heading("Totals")

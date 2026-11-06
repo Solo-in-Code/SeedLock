@@ -226,7 +226,11 @@ class SaveSeedScreen(app: MainActivity, private var seed: Seed?) : Screen(app) {
                         "empties the clipboard if its own copy of the password is still on it."
                 )
             }
-            page.small("A password manager on another phone or computer: type the password there by hand.")
+            page.small(
+                "The password manager on this phone must be able to save while the phone is offline: some cannot " +
+                    "(Bitwarden, for one; AliasVault can). Then, or for a password manager on another phone or " +
+                    "computer, type the 8 words into it by hand."
+            )
             page.text("Then type it here, copied back from the password manager, to prove it was saved correctly:")
             password = page.field("The password", FieldKind.PASSWORD)
             again = password
