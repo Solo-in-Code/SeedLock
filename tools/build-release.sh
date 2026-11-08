@@ -18,6 +18,11 @@
 # app is this build with a signature added and nothing else. With --no-cache first, everything is built again,
 # without what Docker kept from earlier builds (to see the same files come out again).
 #
+# With --gradle-checksums instead (after a version in the app's build files changed), it writes Gradle's list of the
+# files it downloads for the app, each with its checksum, anew in the same environment, into
+# android/gradle/verification-metadata.xml: the app's build checks every file against it (docs/DEVELOPMENT.md,
+# "Checksums of the app's libraries").
+#
 # Needs Docker or Podman (on Linux, or on a Mac with Docker Desktop; on Windows: tools/build-release.ps1), about
 # 15 GB of free disk space, and an internet connection. The first time it downloads about 3 GB (a Debian system,
 # Rust, zig, Java, Gradle and Android's tools) and takes a while; after that, Docker keeps those, and a build takes
@@ -31,11 +36,20 @@ if [ -z "$version" ]; then
     exit 1
 fi
 cache=""
-if [ "${1:-}" = "--no-cache" ]; then
-    cache=--no-cache
+checksums=no
+while [ $# -gt 0 ]; do
+    case $1 in
+        --no-cache) cache=--no-cache ;;
+        --gradle-checksums) checksums=yes ;;
+        *) break ;;
+    esac
     shift
-fi
+done
 sums=${1:-}
+if [ "$checksums" = yes ] && [ -n "$sums" ]; then
+    echo "With --gradle-checksums, this script writes Gradle's list and compares nothing: give it no other file." >&2
+    exit 1
+fi
 if [ -n "$sums" ] && [ ! -f "$sums" ]; then
     echo "There is no file \"$sums\" here: put the release's SHA256SUMS.txt into SeedLock's folder first." >&2
     exit 1
@@ -60,24 +74,8 @@ MSG
     exit 1
 fi
 
-programs="seedlock-$version-linux-x86_64 seedlock-$version-windows-x86_64.exe seedlock-$version-macos"
-app="seedlock-$version-android-unsigned.apk"
-release_app="seedlock-$version-android.apk"
-release_unsigned="seedlock-$version-android-release-without-signature.apk"
-mkdir -p dist
-for file in $programs "$app" "$release_unsigned"; do
-    rm -f "dist/$file"    # so that a failed build leaves no older file behind
-done
-
-echo "Building SeedLock $version for Linux, Windows, the Mac and Android, in the fixed build environment ($engine) ..."
-if [ -f "$release_app" ]; then
-    echo "($release_app is here: the release's app is compared with the one built.)"
-fi
-# --platform linux/amd64: the same environment on every computer, also on a Mac with an Apple chip (which runs it
-# more slowly). --output: what is built comes out into dist; nothing else of the environment does.
-# shellcheck disable=SC2086 # $cache is empty or one word
-if ! DOCKER_BUILDKIT=1 "$engine" build $cache --platform linux/amd64 -f tools/reproducible/Dockerfile \
-        --output type=local,dest=dist .; then
+# What helps when the environment's build stopped
+build_stopped() {
     if [ "$engine" = docker ]; then
         cat >&2 <<'MSG'
 
@@ -101,7 +99,63 @@ The build stopped (see the messages above). What Podman said, and what helps:
   It could not download something: check the internet connection and try again.
 MSG
     fi
+    cat >&2 <<'MSG'
+  "Dependency verification failed": a file that Gradle downloaded for the app is not the one in its list of
+      checksums (android/gradle/verification-metadata.xml). Do not build the app with it: see "Checksums of the
+      app's libraries" in docs/DEVELOPMENT.md.
+MSG
     exit 1
+}
+
+# With --gradle-checksums: Gradle's list of checksums for the app, written anew (Dockerfile, target gradle-checksums)
+if [ "$checksums" = yes ]; then
+    out=dist/gradle-checksums
+    rm -rf "$out"
+    echo "Writing Gradle's list of the files it downloads for SeedLock's app, each with its checksum, in the fixed"
+    echo "build environment ($engine) ..."
+    # shellcheck disable=SC2086 # $cache is empty or one word
+    if ! DOCKER_BUILDKIT=1 "$engine" build $cache --platform linux/amd64 -f tools/reproducible/Dockerfile \
+            --target gradle-checksums --output type=local,dest="$out" .; then
+        build_stopped
+    fi
+    if [ ! -f "$out/verification-metadata.xml" ] || [ ! -f "$out/report.txt" ]; then
+        echo "The list is missing in $out: something went wrong." >&2
+        exit 1
+    fi
+    cp "$out/verification-metadata.xml" android/gradle/verification-metadata.xml
+    echo
+    cat "$out/report.txt"
+    echo
+    echo "Written into android/gradle/verification-metadata.xml: the app's build checks every file that Gradle"
+    echo "downloads against it. Look through what changed before you build (docs/DEVELOPMENT.md, \"Checksums of the"
+    echo "app's libraries\")."
+    exit 0
+fi
+if [ ! -f android/gradle/verification-metadata.xml ]; then
+    echo "android/gradle/verification-metadata.xml is missing: without it, Gradle would not check the files it" >&2
+    echo "downloads for the app. Write it first: sh tools/build-release.sh --gradle-checksums" >&2
+    exit 1
+fi
+
+programs="seedlock-$version-linux-x86_64 seedlock-$version-windows-x86_64.exe seedlock-$version-macos"
+app="seedlock-$version-android-unsigned.apk"
+release_app="seedlock-$version-android.apk"
+release_unsigned="seedlock-$version-android-release-without-signature.apk"
+mkdir -p dist
+for file in $programs "$app" "$release_unsigned"; do
+    rm -f "dist/$file"    # so that a failed build leaves no older file behind
+done
+
+echo "Building SeedLock $version for Linux, Windows, the Mac and Android, in the fixed build environment ($engine) ..."
+if [ -f "$release_app" ]; then
+    echo "($release_app is here: the release's app is compared with the one built.)"
+fi
+# --platform linux/amd64: the same environment on every computer, also on a Mac with an Apple chip (which runs it
+# more slowly). --output: what is built comes out into dist; nothing else of the environment does.
+# shellcheck disable=SC2086 # $cache is empty or one word
+if ! DOCKER_BUILDKIT=1 "$engine" build $cache --platform linux/amd64 -f tools/reproducible/Dockerfile \
+        --output type=local,dest=dist .; then
+    build_stopped
 fi
 
 if command -v sha256sum >/dev/null 2>&1; then

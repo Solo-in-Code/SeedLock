@@ -2,12 +2,14 @@ package org.seedlock.app
 
 import android.Manifest
 import android.app.Activity
+import android.app.ActivityOptions
 import android.app.Dialog
 import android.content.ActivityNotFoundException
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
+import android.content.IntentSender
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
@@ -52,8 +54,8 @@ abstract class Screen(val app: MainActivity) {
 /**
  * SeedLock's only activity. Seeds and wallets live in Rust (seedlock-ffi) and are let go of when the
  * screens that hold them close; every screen above the first one, and every dialog, closes as soon as
- * the app is left. Two exceptions, each for a few minutes, are for a password manager on this phone: after
- * a new password was copied, and while a backup's password is asked for (see [onStop]).
+ * the app is left. Two exceptions, each for a few minutes, are for a password manager on this phone: while
+ * a new password goes to it (copied, or by autofill), and while a backup's password is asked for (see [onStop]).
  *
  * SeedLock works only while the phone is offline: airplane mode on, and no network connected. It checks every
  * second while it is in use; online, everything closes at once and the first screen only says why ([checkNetwork]).
@@ -92,9 +94,16 @@ class MainActivity : Activity() {
 
     /**
      * Until when (SystemClock.elapsedRealtime) SeedLock may be left without closing what is open: for a
-     * few minutes after [copySecret], to paste the password into a password manager on this phone.
+     * few minutes after [copySecret], to paste the password into a password manager on this phone, and after
+     * [forPasswordManager], for the password manager to save the password or to fill it in.
      */
     private var keepOpenUntil = 0L
+
+    /**
+     * The dialogs where the password manager on this phone saves a new seed's password or fills it in (autofill, see
+     * [forPasswordManager]): left for the password manager within [keepOpenUntil], SeedLock keeps them open.
+     */
+    private val passwordManagerDialogs = ArrayList<Dialog>()
 
     /** True when SeedLock was left and what was open stayed open (see [keepOpenUntil]). */
     private var keptOpen = false
@@ -226,12 +235,61 @@ class MainActivity : Activity() {
     }
 
     /**
-     * Closes every dialog. A password manager's autofill session in a prompt for a backup's password ends first,
-     * so that it is offered nothing to save (see `allowAutofill`).
+     * Closes every dialog, or with `keepForPasswordManager` every one but those where the password manager saves or
+     * fills in a new seed's password ([forPasswordManager]). A password manager's autofill session ends first (in a
+     * prompt for a backup's password, for example), so that it is offered nothing to save (see `allowAutofill`); not
+     * while such a dialog stays: its session goes on.
      */
-    private fun closeDialogs() {
-        endAutofill(this)
-        for (dialog in ArrayList(dialogs)) dialog.dismiss()
+    private fun closeDialogs(keepForPasswordManager: Boolean = false) {
+        val kept = if (keepForPasswordManager) passwordManagerDialogs.toList() else emptyList()
+        if (kept.isEmpty()) endAutofill(this)
+        for (dialog in ArrayList(dialogs)) {
+            if (dialog !in kept) dialog.dismiss()
+        }
+    }
+
+    /**
+     * Marks `dialog` (shown with [showSecure]) as one where the password manager on this phone saves a new seed's
+     * password or fills it in (autofill). For [KEEP_OPEN_MS] from now, SeedLock may be left for the password manager
+     * (to unlock it, or to save the password in it) without closing what is open, this dialog included, and without
+     * ending the password manager's session in it; the new seed's screen ends this with [endCopy]. When the dialog
+     * closes, `clear` empties its fields.
+     */
+    fun forPasswordManager(dialog: Dialog, clear: () -> Unit) {
+        if (dialog !in dialogs) return // not shown: SeedLock is left
+        passwordManagerDialogs.add(dialog)
+        keepOpenUntil = SystemClock.elapsedRealtime() + KEEP_OPEN_MS
+        dialog.setOnDismissListener {
+            dialogs.remove(dialog)
+            passwordManagerDialogs.remove(dialog)
+            clear()
+        }
+    }
+
+    /**
+     * Android opens the password manager's own screen through this, after its offer to save a new seed's password
+     * (`SaveSeedScreen.saveWithAutofill`): KeePassDX's, for example. An app built for Android 14 or newer, as SeedLock
+     * is, has to allow such a start, or Android blocks it, even while the app is on screen; Android 14 before its
+     * March 2024 update forgets to allow it here (on a Samsung phone with One UI 6.1, for one: "Background activity
+     * launch blocked"), and the password manager never opens. So SeedLock allows it, the way Android does it from
+     * that update on, where it calls the other `startIntentSender`, with these options, and not this one. Allowed only
+     * while SeedLock is on screen: without that, there is nothing to allow.
+     */
+    override fun startIntentSender(
+        intent: IntentSender,
+        fillInIntent: Intent?,
+        flagsMask: Int,
+        flagsValues: Int,
+        extraFlags: Int
+    ) {
+        if (Build.VERSION.SDK_INT >= 34) {
+            val options = ActivityOptions.makeBasic()
+                .setPendingIntentBackgroundActivityStartMode(ActivityOptions.MODE_BACKGROUND_ACTIVITY_START_ALLOWED)
+                .toBundle()
+            startIntentSender(intent, fillInIntent, flagsMask, flagsValues, extraFlags, options)
+        } else {
+            super.startIntentSender(intent, fillInIntent, flagsMask, flagsValues, extraFlags)
+        }
     }
 
     /**
@@ -276,14 +334,18 @@ class MainActivity : Activity() {
         }
         if (keptOpen) {
             keptOpen = false
-            if (SystemClock.elapsedRealtime() > keepOpenUntil && stack.size > 1) {
-                home()
-                say(
-                    "Closed",
-                    "You were away from SeedLock for longer than ${KEEP_OPEN_MS / 60_000} minutes after copying the " +
-                        "password, so it closed what was open, as it does whenever it is left. A new seed's words are " +
-                        "on your paper: \"Encrypt the words of a seed I already have\" makes its backup."
-                )
+            if (SystemClock.elapsedRealtime() > keepOpenUntil) {
+                closeDialogs()
+                if (stack.size > 1) {
+                    home()
+                    say(
+                        "Closed",
+                        "You were away from SeedLock for longer than ${KEEP_OPEN_MS / 60_000} minutes while the " +
+                            "password went to your password manager, so it closed what was open, as it does whenever " +
+                            "it is left. A new seed's words are on your paper: \"Encrypt the words of a seed I already " +
+                            "have\" makes its backup."
+                    )
+                }
             }
         }
         if (leftAtPrompt != 0L) {
@@ -314,12 +376,15 @@ class MainActivity : Activity() {
             awayDuringPrompt = true
             return
         }
-        closeDialogs()
         if (SystemClock.elapsedRealtime() <= keepOpenUntil) {
-            // gone to paste a copied password into a password manager on this phone: back soon
+            // gone to the password manager on this phone, to paste a copied password into it, to save the password
+            // there or to unlock it for autofill: back soon. A dialog where it saves or fills in the password stays,
+            // and its session with it; other dialogs close.
+            closeDialogs(keepForPasswordManager = true)
             keptOpen = true
             return
         }
+        closeDialogs()
         // Leaving the app (another app, the home screen, the screen switched off) forgets every open seed.
         if (stack.size > 1) home()
     }
@@ -354,7 +419,10 @@ class MainActivity : Activity() {
         keepOpenUntil = SystemClock.elapsedRealtime() + KEEP_OPEN_MS
     }
 
-    /** The copied secret's screen is closing: leaving SeedLock closes everything again, and the clipboard is emptied. */
+    /**
+     * The new seed's screen, which copied its password or handed it to the password manager ([forPasswordManager]), is
+     * closing: leaving SeedLock closes everything again, and the clipboard is emptied.
+     */
     fun endCopy() {
         keepOpenUntil = 0L
         if (inFocus()) emptyClipboard() else leftWithCopy = true
@@ -601,8 +669,8 @@ class MainActivity : Activity() {
         const val REQUEST_CAMERA = 2
 
         /**
-         * For this long after [copySecret], and while a backup's password is asked for ([promptsForPassword]),
-         * SeedLock may be left without closing what is open.
+         * For this long after [copySecret] and [forPasswordManager], and while a backup's password is asked for
+         * ([promptsForPassword]), SeedLock may be left without closing what is open.
          */
         const val KEEP_OPEN_MS = 5 * 60_000L
 

@@ -20,9 +20,14 @@
 # builds (to see the same files come out again). Docker Desktop must be running, with about 15 GB of free disk space.
 # The first time it downloads about 3 GB (a Debian system, Rust, zig, Java, Gradle and Android's tools) and takes a
 # while; after that, a build takes some minutes.
+#
+# With -GradleChecksums instead (after a version in the app's build files changed), it writes Gradle's list of the
+# files it downloads for the app, each with its checksum, anew in the same environment, into
+# android\gradle\verification-metadata.xml: the app's build checks every file against it (docs/DEVELOPMENT.md,
+# "Checksums of the app's libraries").
 # Linux and macOS: tools/build-release.sh.
 
-param([string]$Sums, [switch]$NoCache)
+param([string]$Sums, [switch]$NoCache, [switch]$GradleChecksums)
 
 $ErrorActionPreference = 'Stop'
 
@@ -51,6 +56,17 @@ function Get-Sha256([string]$path) {
     return (Get-FileHash -Algorithm SHA256 -LiteralPath $path).Hash.ToLowerInvariant()
 }
 
+# What helps when the environment's build stopped
+function Stop-Build([string]$engine) {
+    $running = 'Is Docker Desktop running?'
+    if ($engine -eq 'podman') { $running = "Is Podman's machine running (podman machine start)?" }
+    Fail ("`nThe build stopped (see the messages above). $running If it said ""no space left on device"": free " +
+          "some disk space (about 15 GB are needed). If it could not download something: check the internet " +
+          "connection and try again. If it said ""Dependency verification failed"": a file that Gradle downloaded " +
+          "for the app is not the one in its list of checksums (android\gradle\verification-metadata.xml); do not " +
+          "build the app with it, and see ""Checksums of the app's libraries"" in docs/DEVELOPMENT.md.")
+}
+
 $root = Split-Path -Parent $PSScriptRoot
 Push-Location -LiteralPath $root
 try {
@@ -59,6 +75,9 @@ try {
         if ($line -match '^version = "(.*)"$') { $version = $Matches[1]; break }
     }
     if (-not $version) { Fail 'The version was not found in Cargo.toml.' }
+    if ($GradleChecksums -and $Sums) {
+        Fail "With -GradleChecksums, this script writes Gradle's list and compares nothing: give it no other file."
+    }
     if ($Sums -and -not (Test-Path -LiteralPath $Sums -PathType Leaf)) {
         Fail "There is no file ""$Sums"" here: put the release's SHA256SUMS.txt into SeedLock's folder first."
     }
@@ -75,8 +94,40 @@ try {
         Fail ("This script needs Docker Desktop (docs.docker.com/desktop) or Podman, which run SeedLock's fixed " +
               "build environment. Install one of them, start it, then run this script again.")
     }
+    $env:DOCKER_BUILDKIT = '1'
+    $cache = @()
+    if ($NoCache) { $cache = @('--no-cache') }
+    $metadata = 'android\gradle\verification-metadata.xml'
 
-    $programs = @("seedlock-$version-linux-x86_64", "seedlock-$version-windows-x86_64.exe", "seedlock-$version-macos")
+    # With -GradleChecksums: Gradle's list of checksums for the app, written anew (Dockerfile, target gradle-checksums)
+    if ($GradleChecksums) {
+        $out = Join-Path 'dist' 'gradle-checksums'
+        Remove-Item -LiteralPath $out -Recurse -Force -ErrorAction SilentlyContinue
+        Write-Host ("Writing Gradle's list of the files it downloads for SeedLock's app, each with its checksum, in " +
+                    "the fixed build environment ($engine) ...")
+        & $engine build @cache --platform linux/amd64 -f tools/reproducible/Dockerfile --target gradle-checksums `
+            --output type=local,dest=dist/gradle-checksums .
+        if ($LASTEXITCODE -ne 0) { Stop-Build $engine }
+        $list = Join-Path $out 'verification-metadata.xml'
+        $report = Join-Path $out 'report.txt'
+        foreach ($file in @($list, $report)) {
+            if (-not (Test-Path -LiteralPath $file -PathType Leaf)) { Fail "$file is missing: something went wrong." }
+        }
+        Copy-Item -LiteralPath $list -Destination $metadata -Force
+        Write-Host ''
+        foreach ($line in (Get-Content -LiteralPath $report)) { Write-Host $line }
+        Write-Host ''
+        Write-Host ("Written into ${metadata}: the app's build checks every file that Gradle downloads against it. " +
+                    "Look through what changed before you build (docs/DEVELOPMENT.md, ""Checksums of the app's " +
+                    "libraries"").")
+        return
+    }
+    if (-not (Test-Path -LiteralPath $metadata -PathType Leaf)) {
+        Fail ("$metadata is missing: without it, Gradle would not check the files it downloads for the app. Write " +
+              "it first: powershell -ExecutionPolicy Bypass -File tools\build-release.ps1 -GradleChecksums")
+    }
+
+    $programs =@("seedlock-$version-linux-x86_64", "seedlock-$version-windows-x86_64.exe", "seedlock-$version-macos")
     $app = "seedlock-$version-android-unsigned.apk"
     $releaseApp = "seedlock-$version-android.apk"
     $releaseUnsigned = "seedlock-$version-android-release-without-signature.apk"
@@ -91,17 +142,8 @@ try {
     $appCompared = Test-Path -LiteralPath $releaseApp -PathType Leaf
     if ($appCompared) { Write-Host "($releaseApp is here: the release's app is compared with the one built.)" }
     # --platform linux/amd64: the same environment on every computer. --output: what is built comes out into dist.
-    $env:DOCKER_BUILDKIT = '1'
-    $cache = @()
-    if ($NoCache) { $cache = @('--no-cache') }
     & $engine build @cache --platform linux/amd64 -f tools/reproducible/Dockerfile --output type=local,dest=dist .
-    if ($LASTEXITCODE -ne 0) {
-        $running = 'Is Docker Desktop running?'
-        if ($engine -eq 'podman') { $running = "Is Podman's machine running (podman machine start)?" }
-        Fail ("`nThe build stopped (see the messages above). $running If it said ""no space left on device"": free " +
-              "some disk space (about 15 GB are needed). If it could not download something: check the internet " +
-              "connection and try again.")
-    }
+    if ($LASTEXITCODE -ne 0) { Stop-Build $engine }
 
     $expected = @{}
     if ($Sums) {

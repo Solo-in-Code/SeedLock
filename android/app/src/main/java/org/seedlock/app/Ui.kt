@@ -155,13 +155,26 @@ private class SecretField(context: Context) : EditText(context) {
         private set
 
     override fun autofill(value: AutofillValue?) {
+        fillIn { super.autofill(value) }
+    }
+
+    /** Puts text into the field the way a password manager does: not a paste, so the clipboard stays as it is. */
+    fun fillIn(put: () -> Unit) {
         fillingIn = true
         try {
-            super.autofill(value)
+            put()
         } finally {
             fillingIn = false
         }
     }
+}
+
+/**
+ * Puts `text` into `field` (a password that a password manager filled in elsewhere, for example), without SeedLock
+ * taking it for a paste and emptying the clipboard.
+ */
+fun fillSecret(field: EditText, text: CharSequence) {
+    if (field is SecretField) field.fillIn { field.setText(text) } else field.setText(text)
 }
 
 /**
@@ -195,17 +208,33 @@ fun noAutofill(view: View) {
     }
 }
 
+/** What a password manager may fill in or save in a field (see [allowAutofill]). */
+enum class AutofillKind { PASSWORD, USER_NAME }
+
 /**
- * The one exception to [noAutofill]: the password manager chosen in Android's settings (Bitwarden, for example) may
- * fill in a backup's password, so that the password never goes through the clipboard: keyboards such as Gboard and
- * Samsung's keep their own copy of what is copied, which no app can delete. Only the password is filled in this way,
- * and the prompt it is in ends the password manager's session when it closes ([endAutofill]), so that nothing typed in
- * SeedLock is ever offered to the password manager to save.
+ * The one exception to [noAutofill], in a dialog of its own (SeedLock's screens stay closed to autofill): the password
+ * manager chosen in Android's settings (Bitwarden, for example) may fill in a backup's password, so that the password
+ * never goes through the clipboard: keyboards such as Gboard and Samsung's keep their own copy of what is copied, which
+ * no app can delete. Only a password is filled in this way, and the dialog it is in ends the password manager's session
+ * when it closes ([endAutofill]), so that nothing typed in SeedLock is offered to the password manager to save. The
+ * one thing it is offered to save is a new seed's generated password, under the backup's name as the user name, when
+ * the person asks for that (`SaveSeedScreen.saveWithAutofill`).
  */
-fun allowAutofill(field: EditText) {
+fun allowAutofill(field: EditText, kind: AutofillKind = AutofillKind.PASSWORD) {
     if (Build.VERSION.SDK_INT >= 26) {
         field.importantForAutofill = View.IMPORTANT_FOR_AUTOFILL_YES
-        field.setAutofillHints(View.AUTOFILL_HINT_PASSWORD)
+        val hint = if (kind == AutofillKind.USER_NAME) View.AUTOFILL_HINT_USERNAME else View.AUTOFILL_HINT_PASSWORD
+        field.setAutofillHints(hint)
+    }
+}
+
+/** True when this phone has a password manager for autofill: Android 8 or newer, with one chosen in its settings. */
+fun autofillAvailable(context: Context): Boolean {
+    if (Build.VERSION.SDK_INT < 26) return false
+    return try {
+        context.getSystemService(AutofillManager::class.java)?.isEnabled == true
+    } catch (e: Exception) {
+        false
     }
 }
 
@@ -214,6 +243,21 @@ fun endAutofill(context: Context) {
     if (Build.VERSION.SDK_INT >= 26) {
         try {
             context.getSystemService(AutofillManager::class.java)?.cancel()
+        } catch (e: Exception) {
+            // an Android without autofill
+        }
+    }
+}
+
+/**
+ * Ends the password manager's autofill session in SeedLock with what is in its fields now: Android then shows the
+ * password manager's offer to save them, if it can save that way and the password changed since it first looked at the
+ * fields (`SaveSeedScreen.saveWithAutofill`).
+ */
+fun commitAutofill(context: Context) {
+    if (Build.VERSION.SDK_INT >= 26) {
+        try {
+            context.getSystemService(AutofillManager::class.java)?.commit()
         } catch (e: Exception) {
             // an Android without autofill
         }

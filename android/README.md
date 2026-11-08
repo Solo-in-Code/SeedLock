@@ -25,8 +25,9 @@ What makes it safe to use on a phone:
 * **No screenshots** and no screen recording of SeedLock, no picture of it in the list of recent apps,
   no keyboard learning in its fields, no copy of its files in Google's cloud backup or on a new phone. No
   autofill either, except for a backup's password: a password manager on the phone may fill that in (see
-  2 below), and SeedLock offers it nothing to save. A seed's words cannot be copied, and a new password
-  goes on the clipboard only when you tap **Copy it** (see 5 below).
+  2 below), and SeedLock offers it nothing to save but a new backup's generated password, when you tap
+  **Save it** (see 5 below). A seed's words cannot be copied, and a new password goes on the clipboard
+  only when you tap **Copy it**.
 * **The backups on the phone are the same encrypted files** as on the computer, in the app's own storage,
   which other apps cannot read. Once a backup was opened on the phone, SeedLock also keeps its wallet's
   fingerprint there, to show it beside the backup's name; nothing about a BIP39 passphrase is ever kept.
@@ -36,16 +37,16 @@ What makes it safe to use on a phone:
 On the online computer:
 
 1. **Download it.** On SeedLock's GitHub page, click **Releases** on the right. Under the newest release,
-   in its **Assets**, download `seedlock-0.4.0-android.apk` (the version may be newer) and
+   in its **Assets**, download `seedlock-0.4.1-android.apk` (the version may be newer) and
    `SHA256SUMS.txt`.
 2. **Check it,** as for the computer programs (the main README, Part 1, Way A, step 2). Open a terminal
    in the folder it was downloaded to and type the line for your computer:
 
    | Computer | Command |
    |---|---|
-   | Windows | `(Get-FileHash seedlock-0.4.0-android.apk).Hash` |
-   | Mac | `shasum -a 256 seedlock-0.4.0-android.apk` |
-   | Linux | `sha256sum seedlock-0.4.0-android.apk` |
+   | Windows | `(Get-FileHash seedlock-0.4.1-android.apk).Hash` |
+   | Mac | `shasum -a 256 seedlock-0.4.1-android.apk` |
+   | Linux | `sha256sum seedlock-0.4.1-android.apk` |
 
    The long number it shows must be exactly the one next to the file's name in `SHA256SUMS.txt`. If it is
    not, delete the file. To check that list's signature too, see the guide:
@@ -128,6 +129,11 @@ you use.
    Gradle and Android's build tools ("Gradle sync"), which takes a few minutes. If it says that an SDK
    platform, the build tools 34.0.0 or the NDK 28.2.13676358 are missing, click the link it shows to
    install them.
+
+   Gradle checks every file it downloads (Android's build tools, Kotlin, JNA, and all that these use)
+   against its checksum in the list `android/gradle/verification-metadata.xml`. If it stops with
+   **Dependency verification failed**, a file it downloaded is not the one in that list: do not use that
+   build, and please report it (`docs/DEVELOPMENT.md`, Checksums of the app's libraries).
 
 3. **Build the app:** **Build > Generate Bundle(s) / APK(s) > Generate APK(s)** (in older versions of
    Android Studio: **Build > Build Bundle(s) / APK(s) > Build APK(s)**). When it is done, a message links
@@ -227,13 +233,25 @@ then. Until the phone is offline, its first screen shows only a message (it chec
    instead** gives the signed one back as a file.
 5. **Create a new seed** on the phone, then open its backup on the computer (copy the file, or show it as
    a QR code): SeedLock on the computer must open it with the same password and show the same fingerprint.
-   With a password manager on this phone, **Copy it** copies the generated password: paste it there, save
-   it, copy it back and come back to SeedLock within 5 minutes (it stays open meanwhile) to paste it in:
-   right after the paste, SeedLock empties the clipboard. Coming back without pasting, SeedLock empties it
-   if its own copy of the password is still on it. A keyboard with a clipboard of its own keeps a copy
-   anyway (see 2): turn it off, or type the password into the password manager by hand. The password
-   manager must be able to save while the phone is offline: AliasVault can, Bitwarden cannot (offline, its
-   apps only read the vault). With Bitwarden, type the 8 words into it on your everyday phone or computer.
+   The password manager that keeps the generated password must be able to save while the phone is offline:
+   AliasVault and KeePassDX can, Bitwarden cannot (offline, its apps only read the vault; with Bitwarden,
+   type the 8 words into it on your everyday phone or computer). Into a password manager on this phone,
+   the password goes in one of three ways:
+   * **Save it** (with a password manager chosen for autofill, Android 8 and newer): type the backup's
+     name first, then tap **Save** in the window that opens. SeedLock hands the password to the password
+     manager by autofill, without the clipboard, and the password manager offers to save it, under the
+     backup's name. Not every password manager can: KeePassDX can, once **Ask to save data** is on in its
+     autofill settings (it offers to save only while its database is locked or holds no entry for
+     SeedLock yet); AliasVault cannot yet. If no offer appears, use one of the other two ways.
+   * **Copy it**, then paste it into the password manager. Coming back, SeedLock empties the clipboard if
+     its own copy of the password is still on it; but a keyboard with a clipboard of its own keeps a copy
+     anyway (see 2), so turn that off first.
+   * Or type the 8 words into the password manager by hand.
+
+   Then come back to SeedLock within 5 minutes (it stays open meanwhile) and prove that the password was
+   saved correctly: **Let the password manager fill it in** (autofill: give the entry the website
+   `androidapp://org.seedlock.app` as in 2, if the password manager did not), or copy it there and paste
+   it in. Right after a paste, SeedLock empties the clipboard.
 6. **Leave the app** in the middle of something (home button): coming back, SeedLock is on its first
    screen again. A screenshot of SeedLock shows nothing.
 7. **Its permissions:** in **Settings > Apps > SeedLock** (or **SeedLock test**) **> Permissions**, the
@@ -315,6 +333,10 @@ model, and the Android version from **Settings > About phone**).
   Rust: `crates/seedlock-ffi` (the part the app calls), `crates/seedlock-core` and `crates/seedlock-qr`.
 * `org.seedlock.ffi` is written by `uniffi-bindgen` from `crates/seedlock-ffi` (build-rust.sh does it);
   it is not kept in git.
+* `gradle/verification-metadata.xml` lists every file that Gradle downloads for the app, each with its
+  SHA-256, and Gradle checks each one. After a version in `build.gradle.kts` or `app/build.gradle.kts`
+  changed, write the list anew in SeedLock's fixed build environment, `sh tools/build-release.sh
+  --gradle-checksums` (`docs/DEVELOPMENT.md`, Checksums of the app's libraries).
 * The library is built with the `phone` profile (in `Cargo.toml`): the release settings, except that a
   panic becomes an error that the app shows instead of closing it. `docs/DEVELOPMENT.md` (The phone app)
   says more, and `sh tools/audit-offline.sh` checks the app's permissions, libraries and Kotlin code.

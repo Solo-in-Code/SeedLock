@@ -1,5 +1,6 @@
 package org.seedlock.app
 
+import android.app.AlertDialog
 import android.text.Editable
 import android.text.TextWatcher
 import android.view.View
@@ -199,6 +200,9 @@ class SaveSeedScreen(app: MainActivity, private var seed: Seed?) : Screen(app) {
     override val title = "Save the backup"
     private var generated: String? = null
 
+    /** The name typed so far, kept when the screen is built again (after "Generate a strong password for me"). */
+    private var typedName = ""
+
     override fun build(): View {
         val page = Page(app)
         val s = seed ?: return page.view
@@ -209,6 +213,7 @@ class SaveSeedScreen(app: MainActivity, private var seed: Seed?) : Screen(app) {
         )
         page.heading("Name")
         val name = page.field("Name of the backup", FieldKind.NAME)
+        name.setText(typedName)
         page.heading("Password")
         val shown = generated
         val password: EditText
@@ -216,26 +221,49 @@ class SaveSeedScreen(app: MainActivity, private var seed: Seed?) : Screen(app) {
         if (shown != null) {
             page.text("Your new password (8 random words). Save it in your password manager now, exactly as shown:")
             page.code(shown, copyable = false)
+            // the password manager on this phone, by autofill: no clipboard, of which keyboards keep a copy
+            val autofill = autofillAvailable(app)
+            if (autofill) {
+                page.button("Save it in the password manager on this phone") { saveWithAutofill(name, shown) }
+            }
             page.button("Copy it, for a password manager on this phone") {
                 app.copySecret("SeedLock password", shown)
                 app.say(
                     "Copied",
-                    "Now open your password manager, paste the password into a new entry and save it, and copy it " +
-                        "from there again. Then come back to SeedLock within ${MainActivity.KEEP_OPEN_MS / 60_000} " +
-                        "minutes (this screen stays open meanwhile) and paste it here. When you come back, SeedLock " +
-                        "empties the clipboard if its own copy of the password is still on it."
+                    "Now open your password manager, paste the password into a new entry and save it. Then come " +
+                        "back to SeedLock within ${MainActivity.KEEP_OPEN_MS / 60_000} minutes (this screen stays " +
+                        "open meanwhile), and let the password manager fill it in here, or copy it there again and " +
+                        "paste it here. When you come back, SeedLock empties the clipboard if its own copy of the " +
+                        "password is still on it."
                 )
             }
             page.small(
-                "The password manager on this phone must be able to save while the phone is offline: some cannot " +
-                    "(Bitwarden, for one; AliasVault can). Then, or for a password manager on another phone or " +
-                    "computer, type the 8 words into it by hand."
+                if (autofill) {
+                    "Save it: your password manager gets the password without the clipboard, and offers to save " +
+                        "it. Not every one can: KeePassDX can (turn on \"Ask to save data\" in its autofill " +
+                        "settings), AliasVault cannot yet; then copy it. Either way, the password manager must be " +
+                        "able to save while the phone is offline: some cannot (Bitwarden, for one). Then, or for a " +
+                        "password manager on another phone or computer, type the 8 words into it by hand."
+                } else {
+                    "The password manager on this phone must be able to save while the phone is offline: some " +
+                        "cannot (Bitwarden, for one; AliasVault can). Then, or for a password manager on another " +
+                        "phone or computer, type the 8 words into it by hand."
+                }
             )
-            page.text("Then type it here, copied back from the password manager, to prove it was saved correctly:")
+            page.text(
+                if (autofill) {
+                    "Then, to prove it was saved correctly, let the password manager fill it in here, or paste it " +
+                        "here from there:"
+                } else {
+                    "Then type it here, copied back from the password manager, to prove it was saved correctly:"
+                }
+            )
             password = page.field("The password", FieldKind.PASSWORD)
             again = password
+            if (autofill) page.button("Let the password manager fill it in") { fillFromPasswordManager(password) }
         } else {
             page.button("Generate a strong password for me") {
+                typedName = name.text.toString()
                 generated = try {
                     generatePassword()
                 } catch (e: SeedLockException) {
@@ -250,6 +278,82 @@ class SaveSeedScreen(app: MainActivity, private var seed: Seed?) : Screen(app) {
         val light = page.checkBox("Old phone with little memory: protect it with 64 MiB instead of 256 MiB (it still opens everywhere)")
         page.button("Encrypt and save") { save(s, name, password, again, shown, light.isChecked) }
         return page.view
+    }
+
+    /**
+     * Hands the new password to the password manager on this phone by autofill, without the clipboard: Android then
+     * shows the password manager's offer to save it ([commitAutofill]), if it can save that way. In a dialog of its
+     * own, since SeedLock's screens are closed to autofill ([noAutofill]), with two fields: the backup's name, which
+     * the password manager saves as the entry's user name, and the password, which SeedLock puts in only when Save is
+     * tapped. Android offers to save only what changed after the password manager first looked at the fields (when
+     * the name's field gets the focus, right away), so the password's field stays empty until then. The screen below
+     * holds nothing that the password manager may not see: the password itself, the backup's name and the wallet's
+     * fingerprint. SeedLock may be left meanwhile, for the password manager to save the password
+     * ([MainActivity.forPasswordManager]).
+     */
+    private fun saveWithAutofill(nameField: EditText, shown: String) {
+        val backupName = nameField.text.toString().trim()
+        if (backupName.isEmpty()) {
+            app.say("Name", "Type the backup's name first: your password manager saves the password under it.")
+            return
+        }
+        val page = Page(app)
+        page.text("Your password manager saves the password under this name:")
+        val user = page.field("Name in the password manager", FieldKind.NAME)
+        user.setText(backupName)
+        allowAutofill(user, AutofillKind.USER_NAME)
+        val pass = page.field("Password (SeedLock puts it in when you tap Save)", FieldKind.PASSWORD)
+        allowAutofill(pass)
+        page.small(
+            "If your password manager offers to fill in these fields, there is no need: tap Save. It then offers to " +
+                "save the password. If it offers nothing, it cannot save this way: copy the password instead."
+        )
+        val dialog = app.showSecure(AlertDialog.Builder(app)
+            .setTitle("Save the password")
+            .setView(page.view)
+            .setPositiveButton("Save") { _, _ ->
+                if (user.text.isBlank()) user.setText(backupName)
+                fillSecret(pass, shown)
+                commitAutofill(app)
+            }
+            .setNegativeButton("Cancel", null))
+        dialog.setCanceledOnTouchOutside(false)
+        app.forPasswordManager(dialog) {
+            // closed without Save (Cancel, Back): no offer to save; after Save, the session has ended already
+            endAutofill(app)
+            user.text.clear()
+            pass.text.clear()
+        }
+        // the password manager looks at the fields now (Android asks it to fill them in), the password's still empty
+        user.requestFocus()
+    }
+
+    /**
+     * Lets the password manager on this phone fill in the password it saved, into `field`, to prove that it was saved
+     * correctly, without the clipboard: in a dialog of its own, like the prompt for a backup's password ([unlock]). Its
+     * session ends before the dialog closes, so that it is offered nothing to save. SeedLock may be left meanwhile, for
+     * the password manager to unlock ([MainActivity.forPasswordManager]).
+     */
+    private fun fillFromPasswordManager(field: EditText) {
+        val page = Page(app)
+        page.text("Tap the field and choose the entry with this backup's password in your password manager.")
+        val box = page.field("Password", FieldKind.PASSWORD)
+        allowAutofill(box)
+        val dialog = app.showSecure(AlertDialog.Builder(app)
+            .setTitle("Fill in the password")
+            .setView(page.view)
+            .setPositiveButton("OK") { _, _ ->
+                // the password manager's session ends before the dialog closes: it is offered nothing to save
+                endAutofill(app)
+                fillSecret(field, box.text)
+            }
+            .setNegativeButton("Cancel", null))
+        dialog.setCanceledOnTouchOutside(false)
+        app.forPasswordManager(dialog) {
+            endAutofill(app)
+            box.text.clear()
+        }
+        box.requestFocus()
     }
 
     private fun save(s: Seed, nameField: EditText, password: EditText, again: EditText, shown: String?, light: Boolean) {

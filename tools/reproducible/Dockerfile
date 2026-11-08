@@ -10,8 +10,9 @@
 # C compiler and linker for the three systems), cargo-zigbuild (which lets Cargo build with zig), Java, Gradle and
 # Android's command-line tools (whose sdkmanager installs the Android SDK's parts by their exact versions, checking
 # each against Google's checksums). SeedLock's own libraries are fixed by Cargo.lock, the app's by their versions
-# in android/. The source code is copied in and built in the same folder, /seedlock, with the same settings, every
-# time: tools/reproducible/build-programs.sh and build-app.sh.
+# in android/ and by Gradle's list of their checksums (android/gradle/verification-metadata.xml). The source code is
+# copied in and built in the same folder, /seedlock, with the same settings, every time:
+# tools/reproducible/build-programs.sh and build-app.sh.
 #
 # When a pinned version changes here, the programs and the app change too: see "Reproducible builds" for how to
 # update them.
@@ -110,6 +111,19 @@ FROM android-env AS app-build
 COPY . /seedlock
 WORKDIR /seedlock
 RUN sh tools/reproducible/build-app.sh
+
+# ---- Not part of a release: Gradle's list of checksums for the app ---------------------------------------------
+# Only with --target gradle-checksums (tools/build-release.sh --gradle-checksums), after a version in the app's build
+# files changed: the list of every file that Gradle downloads for the app, each with its SHA-256, written anew by the
+# same build as the release's and compared with the list before (android/gradle/verification-metadata.xml, which
+# build-app.sh above makes Gradle check every file against). It comes out alone, with a report.
+FROM android-env AS gradle-checksums-build
+COPY . /seedlock
+WORKDIR /seedlock
+RUN sh tools/reproducible/build-app.sh --gradle-checksums
+
+FROM scratch AS gradle-checksums
+COPY --from=gradle-checksums-build /seedlock/dist/ /
 
 # ---- What comes out: the three programs and the app, into the folder given with --output (dist) ----------------
 FROM scratch AS release
