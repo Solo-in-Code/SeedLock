@@ -109,7 +109,7 @@ different: built in a fixed environment, they come out identical wherever they a
 ### The version number
 
 The program takes its version from one place, `version` under `[workspace.package]` in the top `Cargo.toml`. The
-menu's title shows it (`=== SeedLock 0.4.0: offline Bitcoin seed tool ===`), and `seedlock --version` prints it.
+menu's title shows it (`=== SeedLock 0.4.1: offline Bitcoin seed tool ===`), and `seedlock --version` prints it.
 `Cargo.lock` records it too: after changing it, run `cargo build --offline` once without `--locked`, so that
 `Cargo.lock` follows. The README and the guides show it as well; see [Making a release](#making-a-release).
 
@@ -183,16 +183,23 @@ text first takes the place of what is there, then the clipboard is cleared; on t
 which only cleared it, left the password there), though a keyboard with a clipboard of its own keeps a copy of what is
 copied, which no app can delete (on the Xiaomi Mi 8 with Gboard and on a Samsung phone with Samsung's keyboard, the
 password could still be pasted in another app afterwards); so a password manager on the phone may fill in a backup's
-password instead (autofill, `allowAutofill`), and then it never goes through the clipboard; its text fields allow no
-keyboard learning, and no autofill but in that one field, whose prompt ends the autofill session as it closes
-(`endAutofill`), so that nothing typed in SeedLock is offered to the password manager to save; its files are left out
-of Android's cloud backup and of the copy to a new phone; and leaving the app closes every screen but the first and
-every dialog, and with them any open seed (work that ends meanwhile, such as opening a backup, shows nothing). Two
-exceptions, each for at most 5 minutes, are for a password manager on the same phone: after **Copy it**, the new
-seed's screen stays open while the password is pasted into the password manager; and while SeedLock asks for a
-backup's password, when no seed is open yet (only the first screen and a backup's or a multisig wallet's screen are
-under the prompt), the prompt stays while the password is copied from the password manager (or while the password
-manager opens to fill it in), and when the prompt closes, SeedLock empties the clipboard. `tools/audit-offline.sh`
+password instead (autofill, `allowAutofill`), and then it never goes through the clipboard; from 0.4.1 on, the same
+goes for a new seed's generated password, both ways: **Save it** hands it to the password manager, which then offers
+to save it under the backup's name (`SaveSeedScreen.saveWithAutofill`: the password goes into its field only after the
+password manager first looked at the fields, since Android offers to save only what changed after that, then
+`commitAutofill`), and **Let the password manager fill it in** takes it back to prove that it was saved
+(`fillFromPasswordManager`); its text fields allow no keyboard learning, and no autofill but in these three dialogs
+of their own (the screens are closed to autofill, `noAutofill`), each of which ends the autofill session as it
+closes (`endAutofill`), so that nothing typed in SeedLock is offered to the password manager to save, the one offer
+being **Save it**'s; its files are left out of Android's cloud backup and of the copy to a new phone; and leaving the
+app closes every screen but the first and every dialog, and with them any open seed (work that ends meanwhile, such as
+opening a backup, shows nothing). Two exceptions, each for at most 5 minutes, are for a password manager on the same
+phone: after **Copy it** or **Save it**, the new seed's screen stays open while SeedLock is left for the password
+manager (and a dialog where the password manager saves or fills in the password stays too, with its session:
+`MainActivity.forPasswordManager`); and while SeedLock asks for a backup's password, when no seed is open yet (only
+the first screen and a backup's or a multisig wallet's screen are under the prompt), the prompt stays while the
+password is copied from the password manager (or while the password manager opens to fill it in), and when the prompt
+closes, SeedLock empties the clipboard. `tools/audit-offline.sh`
 checks the library, the permissions, the app's libraries and its Kotlin code (see [the
 audit](#supply-chain-and-the-offline-audit)).
 
@@ -476,8 +483,9 @@ Everything that goes into the programs and the app is in `tools/reproducible/`:
   17 (Eclipse Temurin 17.0.20+8), Gradle 8.11.1 and Android's command-line tools 15859902, each checked by its
   SHA-256, whose sdkmanager installs Android 15's platform (35), the build tools 34.0.0 and the NDK r28c
   (28.2.13676358) by their exact versions, checking each against Google's checksums (and so accepts the Android SDK's
-  license, as Android Studio asks you to). SeedLock's libraries are fixed by `Cargo.lock`, each with its checksum;
-  the app's (Android's build plugin 8.7.3, Kotlin 2.0.21 and JNA 5.18.1) by their versions in `android/`.
+  license, as Android Studio asks you to). SeedLock's libraries are fixed by `Cargo.lock`, each with its checksum; the
+  app's (Android's build plugin 8.7.3, Kotlin 2.0.21 and JNA 5.18.1) by their versions in `android/`, and each file
+  that Gradle downloads for them by its checksum too ([below](#checksums-of-the-apps-libraries)).
 * `build-programs.sh`, what runs inside for the programs: the source code is copied to the same folder for everyone,
   `/seedlock`; the file paths that Rust writes into the programs (for their error messages) read `~/.cargo/...` for
   the libraries and are relative for SeedLock's own code; then the three builds, and `seedlock-tools check-programs`.
@@ -518,10 +526,11 @@ rust-bitcoin) and as the linker:
 2. **The Kotlin code** that calls it (uniffi-bindgen) and **the license notices** the app shows (`seedlock-tools
    notices --android`).
 3. **The app**, with Gradle and Android's build tools: the release build, without Gradle's background processes and
-   caches, which comes out unsigned. Two settings in `android/app/build.gradle.kts` keep it the same for everyone: no
-   information about the folder it was built in (`vcsInfo`: whether it is a git checkout, and which commit), and no
-   list of its libraries in the signature block (`dependenciesInfo`, which only Google Play reads). The same file
-   names the build tools and the NDK of the environment, so that Android Studio uses them too.
+   caches, which comes out unsigned, with every file that Gradle downloads checked against its checksum
+   ([below](#checksums-of-the-apps-libraries)). Two settings in `android/app/build.gradle.kts` keep it the same for
+   everyone: no information about the folder it was built in (`vcsInfo`: whether it is a git checkout, and which
+   commit), and no list of its libraries in the signature block (`dependenciesInfo`, which only Google Play reads).
+   The same file names the build tools and the NDK of the environment, so that Android Studio uses them too.
 4. **The check**, `seedlock-tools check-apk --unsigned`: the version, a release build, the permissions, the libraries
    and the code, the license notices, and no folder of the environment in it.
 
@@ -529,6 +538,56 @@ It comes out as `seedlock-X.Y.Z-android-unsigned.apk`. For a release, `tools/sig
 from the environment's build tools (APK Signature Scheme v2, as before; in a container without any network that can
 only read the key store), and `seedlock-tools check-apk` checks that the signed app is that build with the signature
 added and nothing else.
+
+### Checksums of the app's libraries
+
+From 0.4.1 on, Gradle checks every file that it downloads for the app: Android's build plugin, Kotlin, JNA, and all
+the libraries that these use, from Google's Maven repository, Maven Central and the Gradle Plugin Portal. The file
+`android/gradle/verification-metadata.xml` lists each of them with its SHA-256 (Gradle's [dependency
+verification](https://docs.gradle.org/current/userguide/dependency_verification.html)). If a file is not the one in
+the list, or not in the list at all, the build stops with `Dependency verification failed` and names the file. Then
+do not use that build: a repository may have given out another file than the one the list was written with. Please
+report it.
+
+The release build in the fixed environment always checks (`--dependency-verification strict`, whatever a
+`gradle.properties` file says), and does not start without the list. Android Studio checks the same list when it
+builds the test app, on Linux, macOS and Windows. Only two kinds of files need no checksum: a library's sources and
+its documentation (`-sources.jar`, `-javadoc.jar`), which Android Studio may download to show them, and which are
+never part of a build. Gradle itself is checked by its SHA-256 too: in the Dockerfile, and in
+`android/gradle/wrapper/gradle-wrapper.properties` (`distributionSha256Sum`) when Android Studio downloads it.
+
+So whoever builds the app, and whoever checks a release, gets the files of the list or no app: a file that changed
+later on a repository, or on its way, cannot get into the app unnoticed.
+
+The first list (0.4.1) holds 400 files of 226 libraries and plugins. Its checksums were compared with what others
+publish, and none was different: 385 of its files have the same SHA-256 in the lists of the Android apps of Signal
+(`signalapp/Signal-Android`), Nextcloud (`nextcloud/android`) and F-Droid (`f-droid/fdroidclient`): Android's build
+plugin, aapt2 for the three systems, and Kotlin 2.0.21 with its standard library (which is inside the app) among them.
+JNA's AAR, the other library inside the app, is the file `dist/jna.aar` in JNA's own repository at its tag 5.18.1, and
+its POM is that repository's `pom-jna.xml` with the version filled in. The 13 others are descriptions (`.pom`): of 11
+libraries whose files are among those 385, and the two that point Gradle to Android's build plugin and to Kotlin's.
+
+**Writing the list anew.** After a version in `android/build.gradle.kts` or `android/app/build.gradle.kts` changed
+(or Gradle's), the build stops until the list is written anew. In the fixed environment, in SeedLock's folder:
+
+| System | Command |
+|---|---|
+| Linux, Mac | `sh tools/build-release.sh --gradle-checksums` |
+| Windows | `powershell -ExecutionPolicy Bypass -File tools\build-release.ps1 -GradleChecksums` |
+
+It builds the app as for a release, and as Android Studio builds the test app, with Gradle writing down every file it
+downloads; and it adds aapt2, the program that compiles the app's resources, for macOS and Windows (Android's build
+plugin downloads aapt2 for the system that builds:
+[`aapt2-all-systems.init.gradle.kts`](../tools/reproducible/aapt2-all-systems.init.gradle.kts)). The new list goes
+into `android/gradle/verification-metadata.xml`, and the script says how many files it holds, and which files are new
+and which are no longer needed compared with the list before. It writes the list from nothing instead of adding to
+the old one, because Gradle, when it adds to a list, quietly trusts a file whose checksum changed as well. A file of
+a version never changes: if one has another checksum than in the list before, the script stops and keeps the list
+before. Look through the changes before you commit the new list (`git diff`): only the files of the versions that
+changed should differ. Other projects publish such lists too (as above): a file in theirs must have the same
+checksum. `cargo test` fails if the list does not hold the versions of Android's build plugin, Kotlin and JNA that the
+app's build files name, or aapt2 for each system, or if it lets a file through without its SHA-256 (the test
+`gradle_checks_every_file_of_the_app_by_its_checksum`).
 
 ### Updating the fixed versions
 
@@ -543,11 +602,16 @@ on purpose, in `tools/reproducible/Dockerfile`:
 * **Java:** a release of [Temurin 17](https://github.com/adoptium/temurin17-binaries/releases), the file
   `OpenJDK17U-jdk_x64_linux_hotspot_...tar.gz` and the SHA-256 in the `.sha256.txt` beside it.
 * **Gradle:** the same version as in `android/gradle/wrapper/gradle-wrapper.properties` (Android Studio's), with the
-  SHA-256 of its `-bin.zip` from [Gradle's checksums](https://gradle.org/release-checksums/).
+  SHA-256 of its `-bin.zip` from [Gradle's checksums](https://gradle.org/release-checksums/), in both files (in the
+  wrapper's as `distributionSha256Sum`); then write Gradle's list anew
+  ([Checksums of the app's libraries](#checksums-of-the-apps-libraries)).
 * **Android's command-line tools:** the Linux file and its SHA-256 from [Android Studio's download
   page](https://developer.android.com/studio#command-line-tools-only); **the platform, the build tools and the NDK**:
   the versions in the `sdkmanager` line, and the same in `android/app/build.gradle.kts` (`compileSdk`,
   `buildToolsVersion`, `ndkVersion`).
+
+The app's libraries change the app too: after a new version of Android's build plugin, Kotlin or JNA (in
+`android/build.gradle.kts` and `android/app/build.gradle.kts`), write Gradle's list anew as well.
 
 Then build twice, on two computers, check that both give the same programs and app, try them on each system, and write
 the new versions here and in [What you need](#what-you-need). `cargo test` fails if the Dockerfile, the app's build
@@ -561,7 +625,9 @@ the network. Build with `--locked`, review `Cargo.lock`, and, if you like, vendo
 you build. There is no telemetry and no network code: the online check, which keeps SeedLock from working on a
 computer that is not offline, only reads the computer's own routing table. The ready-made programs are built with
 tools that are each fixed by a checksum too (Debian, Rust, zig, cargo-zigbuild: [What is fixed](#what-is-fixed)), and
-anyone can rebuild them and compare ([Reproducible builds](#reproducible-builds)).
+anyone can rebuild them and compare ([Reproducible builds](#reproducible-builds)). The phone app's libraries, and
+everything that builds it, are fixed by checksums as well: Gradle checks each file it downloads
+([Checksums of the app's libraries](#checksums-of-the-apps-libraries)).
 
 `sh tools/audit-offline.sh` checks, on every run:
 
@@ -878,6 +944,16 @@ checked on a computer:
 * The app's Kotlin code compiles with the Kotlin compiler against Android's public classes (the SDK's `android.jar` of
   Android 15, which the app is built with), the Kotlin code from `uniffi-bindgen` and JNA. Only the public ones: a jar
   that also held Android's hidden methods once let a call through (`View.isAutofilled`) that the real build refused.
+  Autofill itself needs a phone: how **Save it** gets Android to offer saving (the password put into its field only
+  after the password manager's first look, then `commit`) follows Android's own code for that offer (a field that the
+  password manager did not fill counts as changed only if its value differs from the one it had at that first look),
+  and which password managers make the offer, their code: KeePassDX does, with **Ask to save data** on, while its
+  database is locked or holds no entry for the app; AliasVault's answer to a request to save does nothing yet, and it
+  never asks Android for one (in its 0.31.2). After the offer, Android opens the password manager's screen through
+  the app (`startIntentSender`); an app built for Android 14 or newer, as SeedLock is, must allow that, and Android
+  14 before its March 2024 update does not allow it there: on the Samsung phone (One UI 6.1), Android's log said
+  "Background activity launch blocked" for KeePassDX's screen, with SeedLock on screen. So `MainActivity` allows it,
+  with the same options that Android itself passes from that update on (Android's code, before and after).
 * The library type-checks for all three kinds of phone processor (64-bit ARM, 32-bit ARM and x86-64), with Rust's
   standard library built for Android.
 * `android/build-rust.sh` and `build-rust.ps1` were run with stand-ins for rustup, cargo and cargo-ndk: their steps,
@@ -931,6 +1007,20 @@ app's had not when 0.3.2 was written:
   tools, `apksigner` without any network, the key store's folder only read (a folder with a space in its name), the
   signed app written as you on Linux with Docker, nothing replaced. `build-release.sh` and `.ps1` with the release's
   app in the folder: the same app, a different one, one not in `SHA256SUMS.txt`, and one whose checksum is another.
+* Gradle's checksums (0.4.1), with Gradle 8.11.1 itself, on a stand-in for the app's Gradle project whose libraries
+  came from a folder (aapt2 for Linux, macOS and Windows among them, as on Google's repository): `build-app.sh
+  --gradle-checksums` wrote the list from nothing, aapt2 for macOS and Windows included, and the same list, byte for
+  byte, when it ran again; after a library's version changed, it said which files were new and which were no longer
+  needed; and when a library's file had changed on the repository under the same version, it stopped and kept the
+  list before. The release build passed with the list; it stopped with `Dependency verification failed` when a
+  checksum in the list was changed (also with `org.gradle.dependency.verification=off` in `gradle.properties`), and
+  without the list. A build like a Mac's, with aapt2 for macOS and a library's sources, passed too. Gradle itself,
+  asked to add to a list, kept a changed checksum and added an `also-trust` line for the new one: hence the list
+  written from nothing. The Dockerfile in Podman (with stand-ins for its downloads and builds): with
+  `--target gradle-checksums`, only the app's environment was built, and only the list and its report came out; the
+  release's build is still the default. `build-release.sh` and `.ps1` (in PowerShell 7), with stand-ins for Docker:
+  the list put into `android/gradle` and its report shown, no build without the list, and what helps after
+  `Dependency verification failed`.
 
 ### Confirmed on real computers
 
@@ -1021,6 +1111,26 @@ By SeedLock's users:
   clipboard on either phone (Bitwarden on both, AliasVault on the Samsung one). Saving a new seed's generated
   password in a password manager on the phone, which is offline: AliasVault saves it, Bitwarden cannot (offline, its
   apps can only read the vault), so the app now says to type the 8 words into Bitwarden on another device instead.
+  The release, checked on another computer as for 0.3.2: the signature of its checksum list (the release key) and the
+  checksums; its three programs (`check-programs`); and its app, signed with SeedLock's certificate (the signature
+  checked by `apksigtool` too). Without its signature, the app downloaded from the release has the same SHA-256 as the
+  unsigned app in `dist` on the computer that built it in the fixed build environment:
+  `f6637227ad51ac4474a37e283d33f5a078c0563df8c8a5bf4ef0c484a998dc19`.
+* **Version 0.4.1, Gradle's checksums:** the list written in the fixed build environment with Podman (400 files, of
+  226 libraries and plugins). Then the release build, with Gradle checking every file against the list, made from
+  0.4.0's source with the list added the same three programs and the same app as the 0.4.0 release, byte for byte.
+  With one character of JNA's checksum changed in the list, the build stopped with `Dependency verification failed`,
+  naming `jna-5.18.1.aar`, and with SeedLock's message after it. Android Studio on Linux (Arch Linux) built the test
+  app with the list.
+* **Version 0.4.1, a new seed's password by autofill:** on the Xiaomi Mi 8 (Android 10), after **Save it**, Android
+  offered to save the password in KeePassDX, which saved it, and **Let the password manager fill it in** took it back
+  from there. On the Samsung phone, AliasVault offered nothing after **Save it**, as expected, and filled in the
+  password typed into it by hand. Bitwarden, on the Xiaomi, offered nothing after **Save it** either (offline, it
+  cannot save anyway), but offered its entries in **Let the password manager fill it in**, as when a backup is
+  opened. On the Samsung phone (One UI 6.1, Android 14), KeePassDX saved the password and filled it back in too, once
+  SeedLock allowed its screen to open after the offer (`MainActivity.startIntentSender`; before that, Android's log
+  said "Background activity launch blocked"); and still on the Xiaomi. A name typed before **Generate a strong
+  password for me** stays.
 * Also confirmed: reading a backup from its QR code; the online warning on Linux; and multisig with Sparrow (2 of 3,
   native SegWit): the keys typed in or scanned by Sparrow's xpub button, the wallet's descriptor from a file, from an
   animated UR code and from static BBQr codes at two densities (in good light), and its transactions signed by one
@@ -1045,6 +1155,8 @@ You should know these:
    [The phone app, checked on a computer](#the-phone-app-checked-on-a-computer).
 7. The reproducible build: the programs' build with Docker Desktop on a Mac or on Windows (`build-release.ps1`), and
    the Mac program on a Mac with an Intel chip.
+8. Gradle's checksums (from 0.4.1) with Android Studio on macOS and on Windows (it built the test app with the list on
+   Linux): each needs its own aapt2, which the list holds.
 
 Menu 9 and `seedlock camera` let anyone check their own camera setup.
 
@@ -1229,7 +1341,8 @@ crates/seedlock-ffi       the phone app's library: what the app calls, made call
 crates/uniffi-bindgen     writes the Kotlin code that calls seedlock-ffi (run by android/build-rust.sh)
 crates/seedlock-tools     the build helper: the phone app's license notices, the checks of the ready-made programs,
                           of the app before and after it is signed, taking an APK's signature off (never in SeedLock)
-android/                  the Android app (preview): its README, build-rust.sh and .ps1, the app, jvm-check/
+android/                  the Android app (preview): its README, build-rust.sh and .ps1, the app, jvm-check/, and
+                          gradle/verification-metadata.xml (the checksum of each file Gradle downloads for the app)
 docs/GUIDE.md             the user guide
 docs/DEVELOPMENT.md       this page
 docs/FORMAT.md            the backup format specification, with a test vector
@@ -1240,9 +1353,11 @@ install.sh                builds the program and installs it, so that `seedlock`
 LICENSE                   the MIT license (for everything except the logo)
 tools/                    recover.py, crosscheck*.py, interactive_test.py, qr_flow_test.py, multisig_test.py, audit-offline.sh,
                           silent_vectors.py (writes the silent payment test vectors from bitcoin/bips),
-                          build-release.sh and .ps1 (build the ready-made programs and the phone app of a release),
-                          sign-apk.sh and .ps1 (sign that app with SeedLock's Android key)
-tools/reproducible/       the fixed build environment: Dockerfile, build-programs.sh, build-app.sh, zig.sh
+                          build-release.sh and .ps1 (build the ready-made programs and the phone app of a release,
+                          or write Gradle's list of checksums for the app), sign-apk.sh and .ps1 (sign that app with
+                          SeedLock's Android key)
+tools/reproducible/       the fixed build environment: Dockerfile, build-programs.sh, build-app.sh, zig.sh, and
+                          aapt2-all-systems.init.gradle.kts (for Gradle's list of checksums)
 .dockerignore             what the build environment leaves out of SeedLock's folder
 dist/                     made by build-release.sh and .ps1: the ready-made programs and the app (never committed)
 seedlocker backups/       made where you run seedlock: your backups and their QR pictures (never committed)
@@ -1258,12 +1373,13 @@ animated QR code; a command-line program, and an Android app in preview.
 
 **Phone.** The Android app is a preview (see [The phone app](#the-phone-app-preview)): backups, the wallet for
 Sparrow, signing with the camera, and multisig (cosigner keys, multisig wallets, signing as a cosigner). From 0.2.1 on
-it is in the releases, signed with SeedLock's own Android key, with its checksum in the signed list. Next steps: more
-tests on real phones; a new seed's password handed to the password manager on the phone by autofill (Android's offer
-to save it) instead of the clipboard, of which keyboards keep a copy; an iPhone app from the same library (UniFFI
-writes Swift as well). The phone and the command-line program write the same backups and the same QR codes (the
-backup's name in its QR code, the wallet for Sparrow as a QR code that names the keystore), so either one opens what
-the other made (use `--kdf light` for very old phones).
+it is in the releases, signed with SeedLock's own Android key, with its checksum in the signed list. From 0.4.1 on, a
+new seed's password can go to the password manager on the phone by autofill, and come back from it the same way,
+instead of through the clipboard, of which keyboards keep a copy (only some password managers can save this way:
+KeePassDX can, AliasVault cannot yet). Next steps: more tests on real phones; an iPhone app from the same library
+(UniFFI writes Swift as well). The phone and the command-line program write the same backups and the same QR codes
+(the backup's name in its QR code, the wallet for Sparrow as a QR code that names the keystore), so either one opens
+what the other made (use `--kdf light` for very old phones).
 
 **Silent payments.** From 0.4.0 on, on the computer and on the phone: the silent payment wallet for Sparrow 2.5 (an
 `sp()` descriptor, BIP 392) and its address, and signing its payments: spending what it received (BIP 376) and paying
@@ -1272,5 +1388,5 @@ silent payment addresses, its own change included (BIP 375), in PSBTs of version
 signers, a PSBT whose other inputs' shares are not there yet prepared with SeedLock's own shares, without signing.
 
 **Reproducible builds.** From 0.3.1 on, the computer programs are built reproducibly, and from 0.3.2 on the phone app
-too (see [Reproducible builds](#reproducible-builds)). Possible later steps: Gradle checking the app's libraries by
-their checksums too (its dependency verification), not only by their versions.
+too (see [Reproducible builds](#reproducible-builds)). From 0.4.1 on, Gradle checks every file it downloads for the
+app by its checksum, not only by its version ([Checksums of the app's libraries](#checksums-of-the-apps-libraries)).
