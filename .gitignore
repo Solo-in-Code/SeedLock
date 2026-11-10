@@ -34,3 +34,9 @@ Thumbs.db
 *.iml
 *.apk
 *.aab
+# the iPhone app: what ios/build-rust.sh makes, and what Xcode keeps for each person (its xcuserdata folders are
+# named after the Mac's user name)
+/ios/SeedLockFFI.xcframework/
+/ios/SeedLock/Generated/
+xcuserdata/
+*.xcuserstate

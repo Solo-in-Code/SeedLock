@@ -24,6 +24,9 @@ android/local.properties
 android/app/src/main/jniLibs
 android/app/src/main/java/org/seedlock/ffi
 android/app/src/main/assets
+ios/SeedLockFFI.xcframework
+ios/SeedLock/Generated
+**/xcuserdata
 **/__pycache__
 **/*.pyc
 node_modules
