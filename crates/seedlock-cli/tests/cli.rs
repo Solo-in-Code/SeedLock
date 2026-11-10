@@ -828,6 +828,47 @@ fn the_readme_and_the_guides_show_this_version() {
     assert!(found >= 4, "the README and the guides show the version in at least 4 places, not {found}");
 }
 
+/// The iPhone app's Xcode project gives the app this version, and the same oldest iOS as ios/build-rust.sh builds the
+/// Rust library for. It names no Apple development team: Xcode writes the team chosen under Signing & Capabilities
+/// into the project file, and that team belongs to the person who builds the app, never to the published project.
+#[test]
+fn the_iphone_project_names_this_version_and_no_team() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let project = std::fs::read_to_string(root.join("ios/SeedLock.xcodeproj/project.pbxproj")).unwrap();
+    let script = std::fs::read_to_string(root.join("ios/build-rust.sh")).unwrap();
+    // the value of each line "name = value;" of the project's build settings
+    let values = |name: &str| -> Vec<String> {
+        project
+            .lines()
+            .filter_map(|line| line.trim().strip_prefix(&format!("{name} = ")))
+            .map(|value| value.trim_end_matches(';').trim_matches('"').to_string())
+            .collect()
+    };
+    let versions = values("MARKETING_VERSION");
+    assert!(
+        versions.len() == 2 && versions.iter().all(|v| v == env!("CARGO_PKG_VERSION")),
+        "the iPhone app's MARKETING_VERSION (Debug and Release) must be SeedLock's version {}, not {versions:?}",
+        env!("CARGO_PKG_VERSION")
+    );
+    let oldest = values("IPHONEOS_DEPLOYMENT_TARGET");
+    let built_for: Vec<&str> =
+        script.lines().filter_map(|line| line.strip_prefix("export IPHONEOS_DEPLOYMENT_TARGET=")).collect();
+    assert!(
+        oldest.len() == 2 && built_for.len() == 1 && oldest.iter().all(|v| v == built_for[0]),
+        "the project's IPHONEOS_DEPLOYMENT_TARGET {oldest:?} and ios/build-rust.sh's {built_for:?} must be the same"
+    );
+    let teams = values("DEVELOPMENT_TEAM");
+    assert!(
+        teams.len() == 2 && teams.iter().all(String::is_empty),
+        "ios/SeedLock.xcodeproj/project.pbxproj names an Apple development team ({teams:?}): Xcode wrote it when a team was \
+         chosen under Signing & Capabilities. Keep that change on your Mac, and never upload this file from there (upload \
+         the one from SeedLock's source), or set the team back to None before uploading it."
+    );
+    // so the app's identifier is unique to each person's team, as Apple asks
+    let ids = values("PRODUCT_BUNDLE_IDENTIFIER");
+    assert!(ids.len() == 2 && ids.iter().all(|id| id == "org.seedlock.app.$(DEVELOPMENT_TEAM:default=simulator)"), "{ids:?}");
+}
+
 /// The fixed build environment (tools/reproducible/Dockerfile) and DEVELOPMENT.md name the same versions of what builds
 /// the release programs (Rust, zig, cargo-zigbuild), so that a new version in the one cannot leave an old one in the
 /// other.
