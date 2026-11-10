@@ -84,7 +84,7 @@ Do this on the online computer, before you copy the program to the offline one:
    or shows another fingerprint, do not use the download.
 5. Then compare the program's fingerprint with `SHA256SUMS.txt`, as the README says (Part 1, Way A, step 2).
 
-The phone app, `seedlock-0.4.1-android.apk`, is in the same list and is checked the same way
+The phone app, `seedlock-0.5.0-android.apk`, is in the same list and is checked the same way
 ([android/README.md](../android/README.md), Installing the ready-made app).
 
 The same fingerprint is in the README. If you know SeedLock's maintainer from somewhere else, such as a website or a
@@ -147,7 +147,7 @@ Type a number and press Enter. After each task SeedLock comes back to the menu; 
 When SeedLock asks a question, the answer in square brackets is what you get by pressing Enter alone: `[24]`, `[1]`.
 In a yes-or-no question, `[y/N]` means that Enter answers no, and `[Y/n]` that Enter answers yes.
 
-The menu's title shows SeedLock's version: `=== SeedLock 0.4.1: offline Bitcoin seed tool ===`.
+The menu's title shows SeedLock's version: `=== SeedLock 0.5.0: offline Bitcoin seed tool ===`.
 `./seedlock --version` (Windows: `.\seedlock.exe --version`) shows it too.
 
 ### SeedLock works only offline

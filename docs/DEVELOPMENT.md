@@ -6,19 +6,22 @@ build SeedLock and use it, the [README](../README.md) and the [user guide](GUIDE
 SeedLock is written in Rust: memory-safe, with secrets wiped from memory, and built into one small program file. Its
 core library, `seedlock-core`, does no input or output of its own (no files, no terminal, no camera), so that it goes
 into phone apps unchanged: the Android app, a preview for now, is built on it (see [The phone
-app](#the-phone-app-preview)). The releases have it ready-made, signed with SeedLock's own Android key.
+app](#the-phone-app-preview)), and so is the iPhone app, which is being built (see [The iPhone
+app](#the-iphone-app-in-progress)). The releases have the Android app ready-made, signed with SeedLock's own Android
+key.
 
 ## Contents
 
 1. [Building](#building)
 2. [The phone app (preview)](#the-phone-app-preview)
-3. [Making a release](#making-a-release)
-4. [Reproducible builds](#reproducible-builds)
-5. [Supply chain and the offline audit](#supply-chain-and-the-offline-audit)
-6. [How SeedLock was verified](#how-seedlock-was-verified)
-7. [Technical notes](#technical-notes)
-8. [Code layout](#code-layout)
-9. [Limitations and roadmap](#limitations-and-roadmap)
+3. [The iPhone app (in progress)](#the-iphone-app-in-progress)
+4. [Making a release](#making-a-release)
+5. [Reproducible builds](#reproducible-builds)
+6. [Supply chain and the offline audit](#supply-chain-and-the-offline-audit)
+7. [How SeedLock was verified](#how-seedlock-was-verified)
+8. [Technical notes](#technical-notes)
+9. [Code layout](#code-layout)
+10. [Limitations and roadmap](#limitations-and-roadmap)
 
 ## Building
 
@@ -109,7 +112,7 @@ different: built in a fixed environment, they come out identical wherever they a
 ### The version number
 
 The program takes its version from one place, `version` under `[workspace.package]` in the top `Cargo.toml`. The
-menu's title shows it (`=== SeedLock 0.4.1: offline Bitcoin seed tool ===`), and `seedlock --version` prints it.
+menu's title shows it (`=== SeedLock 0.5.0: offline Bitcoin seed tool ===`), and `seedlock --version` prints it.
 `Cargo.lock` records it too: after changing it, run `cargo build --offline` once without `--locked`, so that
 `Cargo.lock` follows. The README and the guides show it as well; see [Making a release](#making-a-release).
 
@@ -137,8 +140,8 @@ How it is made:
 * **`crates/seedlock-ffi`** is the part of SeedLock that the app calls: seeds, backups, the wallet, multisig wallets,
   the review and the signing, QR codes to show, and a scanner that collects QR codes from camera pictures. It is a thin layer over
   `seedlock-core`, with the command-line program's checks and wording. [UniFFI](https://github.com/mozilla/uniffi-rs)
-  makes it callable from Kotlin: `crates/uniffi-bindgen` writes the Kotlin code from the library itself (it can write
-  Swift too, for an iPhone app later). Seeds stay inside Rust, in memory that is wiped; passwords cross as bytes that
+  makes it callable from Kotlin: `crates/uniffi-bindgen` writes the Kotlin code from the library itself (and the
+  Swift code, for the iPhone app). Seeds stay inside Rust, in memory that is wiped; passwords cross as bytes that
   both sides wipe. Its code is safe Rust only (`#![forbid(unsafe_code)]`). What the phone and the computer both do is
   in `seedlock-core`, for example a backup's QR code that carries the backup's name (`backup::qr_text`,
   [`FORMAT.md`](FORMAT.md), section 6) and the wallet's QR code for Sparrow, a UR `crypto-output` whose key is named
@@ -217,6 +220,81 @@ Two more things to know about the app:
   name, names the backups that are a multisig wallet's cosigners, and says before the password is asked for when a
   transaction is for other wallets than the chosen backup's. Nothing about a passphrase is kept: with one, a seed is
   another wallet, and whether it exists stays the person's secret.
+
+## The iPhone app (in progress)
+
+The iPhone app is in the folder `ios`, built step by step on the same library as the Android app:
+[`ios/README.md`](../ios/README.md) says how to build it on a Mac, put it on an iPhone, and what to try. In 0.5.0 it
+keeps backups (added from their file or their text) and opens one with its password, to check it (its wallet
+fingerprint, and a comparison with the words on paper) or to show its words; it makes a new seed and its backup, as
+the Android app does (12 or 24 words, with dice rolls if wanted; three of the words typed back from the paper; a
+password that SeedLock makes, or one's own; the saved backup opened again to check it), or the backup of a seed one
+already has; it copies a backup off the iPhone (a file, a QR code, a picture of the QR code); it lays out a backup's
+wallet for Sparrow, as the Android app does (for real bitcoin or for testing, with a BIP39 passphrase if the wallet has
+one: one QR code to scan, which names the keystore after the backup, or three fields to type, with the first addresses
+to compare and the other address types; or the seed's silent payment wallet), and saves it as files, as the
+computer's menu 5 does (its QR code as a picture, and all of it as text); and it shows the license notices. The next
+groups bring signing with the camera, and multisig. It is not in the releases: Xcode puts it on one's own iPhone (with
+a free Apple ID, for 7 days at a time).
+
+How it is made:
+
+* **The library** is the Android app's, `crates/seedlock-ffi`, built as a static library (`cargo rustc --crate-type
+  staticlib`, with the `phone` profile) for iPhones (`aarch64-apple-ios`) and for the simulator on the Mac that builds
+  it (`aarch64-apple-ios-sim` on an Apple chip, `x86_64-apple-ios` on an Intel processor), for iOS 17 and newer.
+  `ios/build-rust.sh` builds it and puts both builds into `ios/SeedLockFFI.xcframework`, with the C header and the
+  module map that `uniffi-bindgen` writes (the module `seedlock_ffiFFI`, in a folder of its own, as the Matrix SDK
+  lays out its own); it writes the Swift code that calls it (`ios/SeedLock/Generated/seedlock_ffi.swift`) and the
+  license notices (`seedlock-tools notices --ios`, see [Licenses of the libraries](#licenses-of-the-libraries)); and,
+  like the Android script, it keeps the user name out of the library and checks that it did. All of this is made on
+  each Mac and never committed.
+* **The app** (`ios/SeedLock`) is SwiftUI, in Swift 5 mode, for iPhones only, with no library but SeedLock's. Its
+  Xcode project (`ios/SeedLock.xcodeproj`, in Xcode 16's format) is written by hand and synchronizes the folder: every
+  file in it belongs to the app. It has no Info.plist of its own (Xcode writes it from the build settings), no
+  entitlements and no Swift package. Its bundle identifier ends with the team of whoever builds it
+  (`org.seedlock.app.$(DEVELOPMENT_TEAM:default=simulator)`), since Apple gives an identifier to one team only. The
+  project names no team, and a test fails if it does: Xcode writes the team chosen under Signing & Capabilities into
+  the project file, which then belongs on that Mac only.
+
+What keeps the iPhone offline and the secrets in it: iOS lets every app use the network, with no permission an app could
+go without, so the app has no code that could; the audit checks its Swift code for network APIs, the frameworks it
+imports, and its project (see [the audit](#supply-chain-and-the-offline-audit)). It works only while no network is
+connected (`NetworkCheck`, with iOS's monitor of the network's state, `NWPathMonitor`, which only reads that state; iOS
+tells no app whether airplane mode is on). A VPN that iOS keeps on counts as a network, even in airplane mode with
+nothing under it, since SeedLock cannot tell what a VPN carries; the warning then names the VPN (iOS names a VPN's own
+network utun, ipsec or ppp). Online, its first screen shows only a message, and going online closes every screen, the
+prompt and any message at once, with any open seed or wallet (`AppModel`). Leaving the app (the home screen, another
+app, the screen locked) does the same, with two exceptions, each for at most 5 minutes as on Android. One is the prompt
+for a backup's password, which stays while no seed is open, so that the password can be copied from a password manager,
+and when the prompt closes, SeedLock empties the clipboard; a password or words pasted into its fields (several
+characters at once) are taken off the clipboard at once. The other exception is for a new seed's password: iOS lets an
+app hand a password to a password manager by AutoFill only with a web site of the app's own, so SeedLock copies it, for
+this iPhone only (`localOnly`: no Mac or iPad nearby gets it) and until iOS empties it after 5 minutes; for those 5
+minutes, leaving SeedLock keeps the new seed's screen open, to paste the password into the password manager, and back in
+SeedLock, its copy leaves the clipboard if nothing was copied since (iOS's count of the clipboard's changes tells,
+without reading it). The password manager then fills the password back in by AutoFill. A seed lives in Rust while a
+screen holds it (`OpenSeed`; a new seed goes from its words to their check to its backup), and so does a wallet with its
+master key while its screen for Sparrow is open (`OpenWallet`; the seed it came from is let go of as soon as the wallet
+is made); once no screen holds it, Swift frees the object at once (by reference counting), and the Rust side wipes it.
+The app refuses keyboards from other apps (`application(_:shouldAllowExtensionPointIdentifier:)`), so that iOS's own
+keyboard types in every field, with autocorrection and suggestions off (iOS lets no app stop its keyboard from learning
+words, except in a field for a password, where it never does). iOS lets no app block a screenshot or a recording: a
+window of SeedLock's own (`PrivacyCover`) covers the screen while SeedLock is left (the picture in the app switcher
+shows the cover), while a secret is on the screen (a seed, or words typed in) and SeedLock is partly covered (Control
+Center, the app switcher), and while the screen is recorded or mirrored; after a screenshot, which iOS reports only once
+it is taken, SeedLock says what to do when a secret was on the screen (a new seed's words: do not use that seed). The
+wallet for Sparrow shows no secret (an xpub, a descriptor and addresses), so it is not covered while SeedLock is only
+partly covered; after a screenshot of it, SeedLock says that it shows the wallet's addresses. A QR code shows with the
+screen at full brightness and kept on (`Brightness`), as before once it is gone or SeedLock is left. The backups are the
+same `.seedlock` files, in the app's own storage, with iOS's file protection "complete" (encrypted while the iPhone is
+locked), and left out of the iPhone's backups to iCloud or a computer (`Backups`). A password typed into SwiftUI is
+Swift text, which cannot be wiped: the field is emptied at once, the bytes handed to Rust are wiped after the call, and
+Rust wipes its own copy; a BIP39 passphrase likewise (the Swift code that UniFFI writes copies them once more on the
+way, without wiping that copy).
+
+`ios/swift-check/run.sh` calls the library from Swift on a computer (a Mac, or Linux with Swift), as
+`android/jvm-check` does from Kotlin: see [The iPhone app, checked on a
+computer](#the-iphone-app-checked-on-a-computer).
 
 ## Making a release
 
@@ -647,7 +725,14 @@ everything that builds it, are fixed by checksums as well: Gradle checks each fi
 7. the build helper `crates/seedlock-tools` (the app's license notices, the check of a release APK, the check of the
    ready-made programs), which runs where the app or the programs are built and is never part of SeedLock: no
    networking crate in its tree either, and the only programs it starts are cargo (`cargo tree` and `cargo metadata`,
-   for the notices) and the Linux program it checks (`--version`, in the build environment).
+   for the notices) and the Linux program it checks (`--version`, in the build environment);
+8. the iPhone app (in progress), whose Rust library is the Android app's (checked in 6, on every system, iOS's
+   included): since iOS has no permission to take away, its Swift code must use no network API at all (sessions,
+   sockets, Network's connections, web views, links that open a browser, sharing, Bluetooth, iCloud), it imports only
+   Foundation, Network, Observation, SwiftUI, UIKit and UniformTypeIdentifiers, and Network only in
+   `NetworkCheck.swift`, for its monitor of the network's state; its Xcode project links only SeedLock's library, and
+   has no Swift package, no entitlements, no Info.plist of its own, no background mode and no network setting. (The
+   Swift code that `uniffi-bindgen` writes is left out, as its Kotlin code is.)
 
 It prints every `unsafe` line and every place a program is started, so they can be read in one go. Run it after every
 dependency update. It needs Cargo; if Cargo cannot run, it says FAIL, never OK.
@@ -676,8 +761,8 @@ The phone app brings a few more:
 * **UniFFI** (its six crates `uniffi`, `uniffi_core`, `uniffi_macros` and so on) is under the Mozilla Public License
   2.0 (MPL-2.0), a weak copyleft that applies file by file: it covers UniFFI's own files, not SeedLock's, which stay
   MIT. A ready-made APK must say where UniFFI's source code can be had (unchanged, on crates.io and GitHub); the
-  Kotlin code that `uniffi-bindgen` writes comes from UniFFI's templates, so it is treated the same way. The audit
-  allows MPL-2.0 for UniFFI's own crates and for nothing else.
+  Kotlin and Swift code that `uniffi-bindgen` writes comes from UniFFI's templates, so it is treated the same way. The
+  audit allows MPL-2.0 for UniFFI's own crates and for nothing else.
 * **JNA**, which the app uses to call the Rust library, may be used under Apache-2.0 or LGPL-2.1, as one prefers:
   SeedLock takes Apache-2.0. Its native library contains libffi (MIT). The Kotlin standard library inside the app,
   and the JetBrains annotations it uses, are Apache-2.0.
@@ -693,6 +778,11 @@ BlueOak, MITNFA), and code inside a crate under a license of its own (the C libr
 `secp256k1-sys`); then Rust's standard library, and the Java part (JNA with libffi, Kotlin's standard library, the
 annotations), whose versions it reads from the Gradle files. `check-apk` refuses a release APK whose notices are not
 this version's, or whose code is from any other library than those.
+The iPhone app carries its own notices, written the same way (`seedlock-tools notices --ios`, which
+`ios/build-rust.sh` runs, into `ios/SeedLock/Generated/notices.txt`) from the crates built for iPhones and the
+simulator, with the Swift code that UniFFI writes in place of the Java part: it has no other library, since Swift's
+runtime and Apple's frameworks are part of iOS.
+
 * A library that lets you choose between a permissive and a copyleft license is taken under the permissive one; the
   audit accepts it for that reason. So far there is one, `r-efi` (MIT, Apache-2.0 or LGPL), which is only used when
   building for UEFI firmware and never reaches a phone or a computer program.
@@ -701,7 +791,7 @@ this version's, or whose code is from any other library than those.
 
 ### Automated tests
 
-**200 automated tests** (`cargo test --workspace --locked`):
+**202 automated tests** (`cargo test --workspace --locked`):
 
 * **90 for the core library:** backup tamper detection on every bit; a backup's QR code with its name line, still
   read as the backup exactly the way earlier versions read it; BIP39/32/44/49/84/86 test vectors; BIP380 descriptor
@@ -740,7 +830,7 @@ this version's, or whose code is from any other library than those.
   reading Linux routing tables, macOS `route` output and Windows `route print` output in English and Spanish; a
   virtual machine recognised from its firmware description (and real computers not); Windows registry values; a
   scanned backup matched to its file; and which files of an earlier version go into the cosigner keys folder.
-* **35 end-to-end tests of the real program:** among them that SeedLock works only offline (online, and where it
+* **37 end-to-end tests of the real program:** among them that SeedLock works only offline (online, and where it
   cannot tell, every command stops before it asks anything, with exit code 3, and so does the menu, while `--help` and
   `--version` still answer); `sign --scan` through a stand-in ffmpeg; signing without `--network` (a test-network
   transaction is recognised and shown with testnet addresses, a mainnet one is called real bitcoin, `--network` still
@@ -757,8 +847,11 @@ this version's, or whose code is from any other library than those.
   a backup scanned from a named QR code, through a stand-in ffmpeg, giving its name to the files made from it and to
   the keystore; the version in the menu's title, above the menu, and from `--version`; the same version everywhere the
   README and the guides give it; the same release key fingerprint everywhere they give it, which is also the
-  fingerprint of the key in `docs/release-key.asc`; and the same versions of Rust, zig, cargo-zigbuild, Java, Gradle
-  and Android's tools in the fixed build environment, in the app's build files and on this page.
+  fingerprint of the key in `docs/release-key.asc`; the same versions of Rust, zig, cargo-zigbuild, Java, Gradle and
+  Android's tools in the fixed build environment, in the app's build files and on this page; Gradle's list of
+  checksums for the app (see [Checksums of the app's libraries](#checksums-of-the-apps-libraries)); and the iPhone
+  app's Xcode project, with this version, the same oldest iOS as `ios/build-rust.sh` builds for, and no development
+  team in it.
 * **16 for the build helper** (`seedlock-tools`): license expressions read ("(MIT OR Apache-2.0) AND ISC", the old
   "MIT/Apache-2.0"), and of their choices the license that asks the least taken (MIT before others that ask as
   little); license texts recognised by their wording (and a file that only names licenses not taken for one); an MIT
@@ -968,6 +1061,50 @@ checked on a computer:
   debugged, the test build's id, Android Studio's test key, only an old v1 signature, the INTERNET permission, and no
   notices with the home folder's path in a library are each refused, saying why.
 
+### The iPhone app, checked on a computer
+
+This project's test machine has no Mac, so the iPhone app's first version was checked in parts, on Linux, before its
+first build on a Mac; that build then worked at once, on the simulator and on an iPhone (see [Confirmed on real
+computers](#confirmed-on-real-computers)):
+
+* The Swift code type-checks with Apple's Swift compiler 6.0.3 (the Swift of Xcode 16; Ubuntu's `swiftlang` package),
+  in Swift 5 mode as the project sets it: all of the app's code and the Swift code that `uniffi-bindgen` writes,
+  against stand-ins for SwiftUI, UIKit, Network and UniformTypeIdentifiers that declare, with their real signatures,
+  the parts the app uses (written for this check, never part of the app). With UIKit's classes held to the main
+  thread, as Swift takes them from iOS's SDK, there is no warning either; with the strictest concurrency checking,
+  only warnings about values passed between threads, as expected in Swift 5 mode.
+* `ios/swift-check/run.sh`, with the same compiler, calls the library the way the app does, through the Swift code from
+  `uniffi-bindgen` (63 checks): the BIP39 test seed and its fingerprint; a wrong word and a wrong password refused, each
+  with its own error (`SeedLockError.WrongPassword` for the password, which the prompt asks again for); a backup made
+  and opened again, and a damaged one refused; names cleaned up and refused as the computer does them; a backup's QR
+  code text with its name, and its QR code's modules. New seeds: of 24 words, two of them different, 13 words refused;
+  from dice rolls, the same with the rolls alone and different when mixed with the system's randomness; the rolls
+  counted, a wrong one refused, saying which; a password made by SeedLock (8 words). The wallet for Sparrow, opened from
+  a backup as the prompt opens it: BIP84's test vector (the xpub, the derivation, the first of 5 addresses), the QR code
+  that names Sparrow's keystore after the backup (cut to 16 characters for a long name), the descriptor; with a BIP39
+  passphrase and for testing, another wallet with tb1p addresses; the silent payment wallet (sp1q, and tsp1q with the
+  field tspscan for testing); each fits one QR code. And the app's own files: `Backups.swift` (the files in alphabetical
+  order, a name taken whatever its case, a backup never replaced, the same backup found by its line, the computer's file
+  format, a fingerprint kept only for a backup that is there, and only a real one, and gone with the backup),
+  `Helpers.swift` (a file too large refused; a backup opened on a thread of its own, its result back on the main
+  thread), `NewSeeds.swift` (the three words of the quick check, different and in order; a word typed back whole or by
+  its first 3 letters or more, unless other words start with them too; words numbered as on paper; a new backup saved,
+  checked by opening it again, and never replacing one; a password too short refused, with nothing saved),
+  `SparrowText.swift` (the 4 address types named and ordered as Sparrow and the library name them; the wallet and the
+  silent payment wallet as text files, named as the computer names them; for the BIP39 test seed, the wallet's file was
+  also compared with the one that the computer's menu 5 saves: byte for byte the same) and `Notices.swift` (the notices
+  read as the About screen shows them).
+* `ios/build-rust.sh` was run with stand-ins for macOS's `uname`, rustup, Xcode's tools and the builds for iOS (the
+  real cargo for the rest): its steps on a Mac with an Apple chip and with an Intel processor, the oldest iOS it
+  builds for, the user name kept out of the library, and a library that still holds it refused; and what it says
+  without Xcode, and on another system than macOS. The Android app's notices are byte for byte what they were before
+  the iPhone's were added.
+* The audit refuses each of these, put into a copy of the app: a network API (`URLSession`, `NWConnection`, SwiftUI's
+  `Link`), `import WebKit`, Network in another file, a Swift package, entitlements (the setting, or a file), an
+  Info.plist file, another library, and a background mode.
+* The Xcode project file reads as a valid project (with the `pbxproj` Python library), and the app's icon is the
+  logo's PNG at 1024 by 1024 pixels, with the logo's rights notice in it.
+
 ### The fixed build environment, checked here
 
 This project's test machine cannot download Docker images, nor Rust's libraries for Windows and the Mac, nor anything
@@ -1131,6 +1268,48 @@ By SeedLock's users:
   SeedLock allowed its screen to open after the offer (`MainActivity.startIntentSender`; before that, Android's log
   said "Background activity launch blocked"); and still on the Xiaomi. A name typed before **Generate a strong
   password for me** stays.
+* **The 0.4.1 release**, checked on another computer as for 0.4.0: its tag holds the files that were tested, file for
+  file; the signature of its checksum list (the release key) and the checksums; its three programs
+  (`check-programs`); and its app, signed with SeedLock's certificate (the signature checked by `apksigtool` too).
+  Without its signature, the app downloaded from the release has the same SHA-256 as the unsigned app in `dist` on the
+  computer that built it in the fixed build environment:
+  `109cf623016051b2fec7caa9b54ba84502495ef2ef564288ffad3c3541aec030`.
+* **Version 0.5.0, the iPhone app's first version:** on a Mac with an Apple chip, `ios/build-rust.sh` and Xcode 27.2
+  built it without a problem, following [`ios/README.md`](../ios/README.md), and it ran in the simulator and on an
+  iPhone 13 with iOS 27.2. SeedLock showed its online warning, with the reason, while the Mac (in the simulator) or
+  the iPhone was online, and opened once it was offline; going online while a backup's screen was open closed
+  everything. A backup added from its file (its name from the file's name; the same file again said **Already on this
+  iPhone**) and from its text pasted in; **Check the backup**: a wrong password asked again, the right one showed
+  **Backup OK** with the same fingerprint as the computer, then shown beside the backup's name; the comparison with
+  the words (MATCH, and MISMATCH with other words). Leaving SeedLock with **Check the backup** open brought it back to
+  its first screen, and the app switcher showed the cover. A password from a password manager, by AutoFill and by copy
+  and paste, with the clipboard empty afterwards. The cover while the screen was recorded; deleting a backup; **About
+  SeedLock**, with its version and the licenses. With airplane mode on but a VPN still on, SeedLock showed its online
+  warning, and with the VPN off it opened: a VPN counts as a network. The warning now names it ("A VPN is on: turn it
+  off..."), as seen with the VPN on in airplane mode.
+* **Version 0.5.0, the iPhone app's second group** (Xcode 27.2, an iPhone 13 with iOS 27.2): a new seed of 12 words,
+  its words in two numbered columns with its fingerprint, then the quick check (a wrong word said **Not the same** and
+  showed the words again) and its backup, with a password that SeedLock made: copied, saved in the password manager,
+  filled back in by AutoFill, then **Backup saved** and the backup's screen with its fingerprint; away for longer than
+  5 minutes after copying, SeedLock was back on its first screen, saying why. Dice rolls (counted, the number keyboard
+  closed by **Done**). The words of a seed one already has, with one's own password typed twice (too short, or two
+  different ones, refused). **Show the words**, with its warning first; a screenshot of the words, after which
+  SeedLock said what to do; the cover in the app switcher over a new seed's words. A backup's QR code at full
+  brightness, read with its name by SeedLock elsewhere, and the brightness as before afterwards; the QR code saved as
+  a picture (the PNG with its two lines of text), and a copy saved as a file, which the computer opened (menu 4).
+* **Version 0.5.0, the iPhone app's third group** (Xcode 27.2, an iPhone 13 with iOS 27.2): **Wallet for Sparrow** on
+  a backup's screen, its prompt asking for the network and whether a BIP39 passphrase is used (the keyboard not up at
+  once); a wrong password asked again. The wallet at full brightness, with the backup's fingerprint: Sparrow made the
+  watch-only wallet by scanning its QR code (File > Import Wallet, Output Descriptor, Scan...), named as the backup,
+  with the same first receive addresses. Another Script Type (Taproot: bc1p addresses, m/86'/0'/0'); the QR code saved
+  as a picture and all of it as a text file, under the computer's names; the silent payment wallet (sp1q, spscan) and
+  its two files. Leaving SeedLock closed the wallet, the brightness as before. With a BIP39 passphrase, another
+  fingerprint and the line that says so (an empty passphrase refused); for testing, a tpub, tb1q addresses, and tsp1q
+  with tspscan. A screenshot of it, after which SeedLock said what it shows. A password copied from the password
+  manager while the prompt waited, with the clipboard empty afterwards; the message that says so was not seen at
+  first (it showed at the bottom of the prompt, where the keyboard most likely hid it), and now shows right under the
+  field: confirmed in the prompt for the wallet and for **Check the backup** (with a wrong password's message there
+  too), for a wallet's BIP39 passphrase, and on the new backup's screen. **Check the backup** as before.
 * Also confirmed: reading a backup from its QR code; the online warning on Linux; and multisig with Sparrow (2 of 3,
   native SegWit): the keys typed in or scanned by Sparrow's xpub button, the wallet's descriptor from a file, from an
   animated UR code and from static BBQr codes at two densities (in good light), and its transactions signed by one
@@ -1157,6 +1336,8 @@ You should know these:
    the Mac program on a Mac with an Intel chip.
 8. Gradle's checksums (from 0.4.1) with Android Studio on macOS and on Windows (it built the test app with the list on
    Linux): each needs its own aapt2, which the list holds.
+9. The iPhone app (in progress, from 0.5.0) with Xcode on a Mac with an Intel processor (its simulator then runs
+   `x86_64-apple-ios`), and on iOS 17.
 
 Menu 9 and `seedlock camera` let anyone check their own camera setup.
 
@@ -1191,6 +1372,12 @@ JNA's jar, and `pip install embit mnemonic urtypes`, as the script's first lines
 
 ```sh
 KOTLINC=/path/to/kotlinc/bin/kotlinc JNA_JAR=/path/to/jna.jar sh android/jvm-check/run.sh
+```
+
+The same library called from Swift as the iPhone app calls it (on a Mac with Xcode, or on Linux with Swift):
+
+```sh
+sh ios/swift-check/run.sh
 ```
 
 ## Technical notes
@@ -1337,12 +1524,15 @@ crates/seedlock-core      the library: mnemonic, entropy, backup format, wallet 
 crates/seedlock-cli       the `seedlock` program: prompts, menu, files, QR pictures and pages, camera scanning, and the
                           online check that keeps it from working on a computer that is not offline (offline.rs)
 crates/seedlock-qr        reading QR codes in camera pictures, and making QR codes (no I/O; used by both programs)
-crates/seedlock-ffi       the phone app's library: what the app calls, made callable from Kotlin by UniFFI
-crates/uniffi-bindgen     writes the Kotlin code that calls seedlock-ffi (run by android/build-rust.sh)
-crates/seedlock-tools     the build helper: the phone app's license notices, the checks of the ready-made programs,
+crates/seedlock-ffi       the phone apps' library: what the apps call, made callable from Kotlin and Swift by UniFFI
+crates/uniffi-bindgen     writes the Kotlin and the Swift code that call seedlock-ffi (run by android/build-rust.sh
+                          and ios/build-rust.sh)
+crates/seedlock-tools     the build helper: the phone apps' license notices, the checks of the ready-made programs,
                           of the app before and after it is signed, taking an APK's signature off (never in SeedLock)
 android/                  the Android app (preview): its README, build-rust.sh and .ps1, the app, jvm-check/, and
                           gradle/verification-metadata.xml (the checksum of each file Gradle downloads for the app)
+ios/                      the iPhone app (in progress): its README, build-rust.sh, the Xcode project, the app in
+                          SeedLock/, and swift-check/ (the library called from Swift on a computer)
 docs/GUIDE.md             the user guide
 docs/DEVELOPMENT.md       this page
 docs/FORMAT.md            the backup format specification, with a test vector
@@ -1369,17 +1559,23 @@ seedlocker transactions/  made where you run seedlock: signed files of scanned t
 Today: the English word list only; multisig as native, nested or legacy SegWit (no Taproot multisig); silent
 payments for single-signature wallets, account 0; the unsigned PSBT (version 0 or 2) comes in as a file or by camera
 (animated `ur:crypto-psbt`, BBQr, or a plain PSBT in one QR code), and the signed one leaves as a file or as an
-animated QR code; a command-line program, and an Android app in preview.
+animated QR code; a command-line program, an Android app in preview, and the start of an iPhone app.
 
 **Phone.** The Android app is a preview (see [The phone app](#the-phone-app-preview)): backups, the wallet for
 Sparrow, signing with the camera, and multisig (cosigner keys, multisig wallets, signing as a cosigner). From 0.2.1 on
 it is in the releases, signed with SeedLock's own Android key, with its checksum in the signed list. From 0.4.1 on, a
 new seed's password can go to the password manager on the phone by autofill, and come back from it the same way,
 instead of through the clipboard, of which keyboards keep a copy (only some password managers can save this way:
-KeePassDX can, AliasVault cannot yet). Next steps: more tests on real phones; an iPhone app from the same library
-(UniFFI writes Swift as well). The phone and the command-line program write the same backups and the same QR codes
-(the backup's name in its QR code, the wallet for Sparrow as a QR code that names the keystore), so either one opens
-what the other made (use `--kdf light` for very old phones).
+KeePassDX can, AliasVault cannot yet). Next steps: more tests on real phones, and the iPhone app.
+
+**iPhone.** The iPhone app is being built from the same library (UniFFI writes Swift as well), step by step (see [The
+iPhone app](#the-iphone-app-in-progress)): in 0.5.0 it keeps backups, opens them to check them or show their words,
+makes new seeds and their backups, copies backups off the iPhone, and lays out their wallets for Sparrow. Next, one
+group at a time: signing with the camera, and multisig; then the checks of the whole app on real iPhones.
+
+The phone apps and the command-line program write the same backups and the same QR codes (the backup's name in its QR
+code, the wallet for Sparrow as a QR code that names the keystore), so each opens what another made (use `--kdf light`
+for very old phones).
 
 **Silent payments.** From 0.4.0 on, on the computer and on the phone: the silent payment wallet for Sparrow 2.5 (an
 `sp()` descriptor, BIP 392) and its address, and signing its payments: spending what it received (BIP 376) and paying
