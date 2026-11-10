@@ -3,7 +3,7 @@ name = "seedlock-ffi"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
-description = "SeedLock for phones: seedlock-core made callable from Kotlin (Android) and later Swift (iPhone), with UniFFI"
+description = "SeedLock for phones: seedlock-core made callable from Kotlin (Android) and Swift (iPhone), with UniFFI"
 publish = false
 
 [lib]
