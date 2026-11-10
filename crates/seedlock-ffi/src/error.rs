@@ -4,7 +4,7 @@
 use zeroize::{Zeroize, Zeroizing};
 
 /// In Kotlin: `SeedLockException.WrongPassword` and `SeedLockException.Failed`, whose `message` is the
-/// text to show.
+/// text to show; in Swift: `SeedLockError.WrongPassword` and `SeedLockError.Failed`, with that text.
 #[derive(Debug, thiserror::Error, uniffi::Error)]
 #[uniffi(flat_error)]
 pub enum SeedLockError {

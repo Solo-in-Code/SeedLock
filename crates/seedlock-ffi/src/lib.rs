@@ -1,8 +1,9 @@
 //! # seedlock-ffi
 //!
-//! SeedLock for phones: the parts of `seedlock-core` that the Android app needs, made callable from
-//! Kotlin with UniFFI (and later from Swift, for an iPhone app). The Kotlin code that calls these
-//! functions is generated from this crate by `uniffi-bindgen` (see `android/README.md`).
+//! SeedLock for phones: the parts of `seedlock-core` that the phone apps need, made callable with
+//! UniFFI from Kotlin (the Android app) and from Swift (the iPhone app). The code that calls these
+//! functions is generated from this crate by `uniffi-bindgen` (see `android/README.md` and
+//! `ios/README.md`).
 //!
 //! What the app can do through it, mirroring the command-line program's menu:
 //!
