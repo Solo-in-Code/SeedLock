@@ -20,6 +20,12 @@
 #      except UniFFI's own crates (MPL-2.0, see DEVELOPMENT.md); the app's manifest asks Android only for the
 #      camera and the network state and takes INTERNET out (so Android refuses it any network), JNA is its
 #      only other library, and its Kotlin code uses no network API
+#   7. the iPhone app (preview), whose Rust library is the same as Android's (checked in 6, on every system,
+#      iOS's included): iOS has no permission to take away, so its Swift code must use no network API at all;
+#      it imports only Apple's frameworks listed below, Network only to read the network's state
+#      (NWPathMonitor, in NetworkCheck.swift); and its Xcode project links nothing but SeedLock's own library,
+#      with no Swift package, no entitlements, no Info.plist of its own, no background mode and no network
+#      setting
 # Needs the Rust toolchain: "cargo --version" must work. If it cannot, this script says FAIL (it never says OK).
 # Run it after every dependency update:  sh tools/audit-offline.sh
 set -eu
@@ -141,6 +147,45 @@ if [ "$libraries" != '    implementation("net.java.dev.jna:jna:5.18.1@aar")' ] |
     echo "FAIL: the app has other libraries than JNA (android/app/build.gradle.kts); check what they do by hand:"; echo "$libraries"; exit 1
 fi
 
+# 7. the iPhone app: its Swift code (without what ios/build-rust.sh writes into ios/SeedLock/Generated: UniFFI's
+#    code, like the Kotlin code it writes, which the check of the Android app's own code leaves out too) and its
+#    Xcode project
+ios=ios/SeedLock
+swift_files=$(find "$ios" -name '*.swift' ! -path "$ios/Generated/*" | sort)
+if [ "$(printf '%s\n' "$swift_files" | grep -c '\.swift$')" -lt 5 ]; then
+    echo "FAIL: the iPhone app's Swift code was not found in $ios."; exit 1
+fi
+net_swift='URLSession|URLRequest|NSURLConnection|NWConnection|NWListener|NWBrowser|NWEndpoint|NWProtocol|NWMulticast|CFSocket|CFStream|CFHost|getaddrinfo|(^|[^A-Za-z_.])(socket|connect)\(|WKWebView|WebKit|SafariServices|SFSafariViewController|ASWebAuthenticationSession|MultipeerConnectivity|CoreBluetooth|CloudKit|NSUbiquitous|contentsOf:|openURL|UIApplication\.shared\.open|(^|[^A-Za-z_])Link\(|ShareLink|UIActivityViewController|UIDocumentInteractionController'
+# shellcheck disable=SC2086 # the file names hold no spaces
+own_swift=$(grep -nE "$net_swift" $swift_files || true)
+if [ -n "$own_swift" ]; then
+    echo "FAIL: network API used in the iPhone app's Swift code:"; echo "$own_swift"; exit 1
+fi
+# shellcheck disable=SC2086
+imports=$(grep -hE '^[[:space:]]*import[[:space:]]' $swift_files | sed -E 's/^[[:space:]]*import[[:space:]]+//; s/[[:space:]].*//' | sort -u | tr '\n' ' ')
+if [ "$imports" != "Foundation Network Observation SwiftUI UIKit UniformTypeIdentifiers " ]; then
+    echo "FAIL: the iPhone app's Swift code imports other frameworks than Foundation, Network, Observation, SwiftUI, UIKit and UniformTypeIdentifiers; check what they do by hand: $imports"; exit 1
+fi
+# shellcheck disable=SC2086
+network_users=$(grep -lE '^[[:space:]]*import[[:space:]]+Network([[:space:]]|$)' $swift_files | tr '\n' ' ')
+# of Network's names, only the monitor, the state it gives (a path) and the kinds of network in it (interfaces)
+network_names=$(grep -oE 'NW[A-Za-z]+' "$ios/NetworkCheck.swift" | sort -u | grep -vxE 'NWPathMonitor|NWPath|NWInterface' || true)
+if [ "$network_users" != "$ios/NetworkCheck.swift " ] || [ -n "$network_names" ]; then
+    echo "FAIL: the iPhone app uses Network for more than reading the network's state (NWPathMonitor in NetworkCheck.swift): $network_users $network_names"; exit 1
+fi
+pbx=ios/SeedLock.xcodeproj/project.pbxproj
+[ -f "$pbx" ] || { echo "FAIL: the iPhone app's Xcode project ($pbx) was not found."; exit 1; }
+linked=$(grep -E 'in Frameworks \*/ = \{isa = PBXBuildFile' "$pbx" | sed -E 's/.*\/\* (.*) in Frameworks \*\/.*/\1/' | tr '\n' ' ')
+if [ "$linked" != "SeedLockFFI.xcframework " ]; then
+    echo "FAIL: the iPhone app links other libraries than SeedLock's own (SeedLockFFI.xcframework); check them by hand: $linked"; exit 1
+fi
+setting=$(grep -noE 'XCRemoteSwiftPackageReference|XCLocalSwiftPackageReference|XCSwiftPackageProductDependency|CODE_SIGN_ENTITLEMENTS|(^|[^A-Z_])INFOPLIST_FILE|OTHER_LDFLAGS|wrapper\.framework|archive\.ar|UIBackgroundModes|NSAppTransportSecurity|NSLocalNetwork|NSBonjourServices|NSUserTracking' "$pbx" || true)
+others=$(find ios -name '*.plist' ! -path '*/Generated/*' ! -path '*/SeedLockFFI.xcframework/*' ! -path '*/xcuserdata/*' -o -name '*.entitlements' | sort)
+if [ -n "$setting" ] || [ -n "$others" ]; then
+    echo "FAIL: the iPhone app's project has a Swift package, entitlements, an Info.plist of its own, another library or a network setting; check by hand:"
+    echo "$setting $others"; exit 1
+fi
+
 echo "unsafe code (terminal and process calls only, never in the core library):"
 grep -rnw unsafe crates/*/src | sed 's/^/  /' | cut -c1-110
 echo "Programs SeedLock can start (nothing else does):"
@@ -153,3 +198,4 @@ echo "OK: all $libs libraries SeedLock is built from (on every system) have perm
 echo "OK: the phone app's library: $ffi_count crates in its dependency tree (on every system), none with network access; all $ffi_libs libraries it is built from have permissive licenses, except UniFFI's own $mpl crates (MPL-2.0)."
 echo "OK: the phone app asks Android only for the camera and the network state (INTERNET is taken out), JNA is its only other library, and its Kotlin code uses no network API."
 echo "OK: the build helper (crates/seedlock-tools) has no networking crate either, and starts only cargo and the Linux program it checks."
+echo "OK: the iPhone app's Swift code uses no network API and imports only Apple's frameworks for the screen, files and the network's state; its project links only SeedLock's library, with no package, entitlements or network setting."
