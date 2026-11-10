@@ -1,12 +1,14 @@
-//! The license notices of the libraries that SeedLock's phone app is built from, as the app shows them
-//! (its first screen: About SeedLock and its licenses). `android/build-rust.sh` writes them into the app's
-//! assets right after it built the Rust library, from the very libraries it used, so that they always
-//! match the app.
+//! The license notices of the libraries that SeedLock's phone apps are built from, as the apps show them
+//! (their first screen: About SeedLock and its licenses). `android/build-rust.sh` writes them into the
+//! Android app's assets right after it built the Rust library, from the very libraries it used, so that they
+//! always match the app; `ios/build-rust.sh` does the same for the iPhone app.
 //!
-//! Which libraries: the Rust crates compiled into `libseedlock_ffi.so` for the three kinds of phone
-//! processor (`cargo tree`), without the crates that only help to compile it, but with the macro crates
-//! whose generated code is in it; Rust's standard library; and the app's Java part: JNA (with libffi in
-//! its native library), Kotlin's standard library and JetBrains' annotations.
+//! Which libraries: the Rust crates compiled into the app's Rust library (`libseedlock_ffi.so` for the three
+//! kinds of Android phone processor, `libseedlock_ffi.a` for iPhones and the simulator on both kinds of Mac:
+//! `cargo tree`), without the crates that only help to compile it, but with the macro crates whose generated
+//! code is in it; Rust's standard library; and, in the Android app, its Java part: JNA (with libffi in its
+//! native library), Kotlin's standard library and JetBrains' annotations. The iPhone app has no other
+//! library: Swift's runtime and Apple's frameworks are part of iOS.
 //!
 //! What of each: the license it is used under (of the ones a crate offers, the one that asks the least;
 //! MIT where several ask the same), its copyright lines, and the license texts: the MIT text once for all
@@ -20,12 +22,28 @@ use std::process::Command;
 
 use serde_json::Value;
 
-/// The phone processors the app is built for (android/build-rust.sh).
+/// The phone processors the Android app is built for (android/build-rust.sh).
 pub const ANDROID_TARGETS: [&str; 3] = ["aarch64-linux-android", "armv7-linux-androideabi", "x86_64-linux-android"];
 
-/// The first line of the notices; `check-apk` finds the version in it.
+/// What the iPhone app is built for (ios/build-rust.sh): iPhones, and the simulator on a Mac with an Apple chip or
+/// with an Intel processor.
+pub const IPHONE_TARGETS: [&str; 3] = ["aarch64-apple-ios", "aarch64-apple-ios-sim", "x86_64-apple-ios"];
+
+/// The app the notices are for.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum App {
+    Android,
+    Iphone,
+}
+
+/// The first line of the Android app's notices; `check-apk` finds the version in it.
 pub fn title(version: &str) -> String {
     format!("SeedLock {version} for Android: licenses")
+}
+
+/// The first line of the iPhone app's notices.
+pub fn iphone_title(version: &str) -> String {
+    format!("SeedLock {version} for iPhone: licenses")
 }
 
 const APACHE_2_0: &str = include_str!("../licenses/Apache-2.0.txt");
@@ -74,22 +92,21 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY
 TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE \
 SOFTWARE.";
 
-/// `seedlock-tools notices --android [--out FILE]`
+/// `seedlock-tools notices --android|--ios [--out FILE]`
 pub fn run(args: &[String]) -> Result<(), String> {
-    let mut android = false;
+    let mut app = None;
     let mut out = None;
     let mut rest = args.iter();
     while let Some(arg) = rest.next() {
         match arg.as_str() {
-            "--android" => android = true,
+            "--android" => app = Some(App::Android),
+            "--ios" => app = Some(App::Iphone),
             "--out" => out = Some(PathBuf::from(rest.next().ok_or("--out needs a file name")?)),
             other => return Err(format!("notices: unknown option {other}")),
         }
     }
-    if !android {
-        return Err("notices: say which app the notices are for: --android".into());
-    }
-    let text = android_notices(Path::new("."), env!("CARGO_PKG_VERSION"))?;
+    let app = app.ok_or("notices: say which app the notices are for: --android or --ios")?;
+    let text = notices(Path::new("."), env!("CARGO_PKG_VERSION"), app)?;
     match out {
         Some(path) => {
             if let Some(dir) = path.parent().filter(|d| !d.as_os_str().is_empty()) {
@@ -206,17 +223,17 @@ fn metadata(root: &Path, targets: &[&str]) -> Result<HashMap<String, Package>, S
     Ok(packages)
 }
 
-/// The crates in the phone library: those compiled into it for each Android target, and the macro crates
+/// The crates in the phone library: those compiled into it for each of the app's targets, and the macro crates
 /// they use directly (the code those generate is in the library; what the macro crates themselves use is
 /// not). Sorted by name and version.
-fn phone_library_crates(root: &Path) -> Result<Vec<Package>, String> {
+fn phone_library_crates(root: &Path, targets: &[&str]) -> Result<Vec<Package>, String> {
     let mut linked = BTreeSet::new();
     let mut built = BTreeSet::new();
-    for target in ANDROID_TARGETS {
+    for target in targets {
         linked.extend(tree(root, "seedlock-ffi", target, "normal,no-proc-macro")?);
         built.extend(tree(root, "seedlock-ffi", target, "normal")?);
     }
-    let packages = metadata(root, &ANDROID_TARGETS)?;
+    let packages = metadata(root, targets)?;
     let by_name: HashMap<(String, String), &Package> =
         packages.values().map(|p| ((p.name.clone(), p.version.clone()), p)).collect();
     let mut chosen: BTreeMap<(String, String), Package> = BTreeMap::new();
@@ -578,45 +595,54 @@ fn version_in(file: &Path, marker: &str, end: char) -> Result<String, String> {
         .ok_or_else(|| format!("the version after \"{marker}\" was not found in {}", file.display()))
 }
 
-/// The notices, for SeedLock `version`, built in the workspace at `root`.
-pub fn android_notices(root: &Path, version: &str) -> Result<String, String> {
+/// The notices of `app`, for SeedLock `version`, built in the workspace at `root`.
+pub fn notices(root: &Path, version: &str, app: App) -> Result<String, String> {
     let own_license = fs::read_to_string(root.join("LICENSE")).map_err(|e| format!("cannot read SeedLock's LICENSE: {e}"))?;
-    let jna = version_in(&root.join("android/app/build.gradle.kts"), "net.java.dev.jna:jna:", '@')?;
-    let kotlin = version_in(&root.join("android/build.gradle.kts"), "id(\"org.jetbrains.kotlin.android\") version \"", '"')?;
+    let targets: &[&str] = match app {
+        App::Android => &ANDROID_TARGETS,
+        App::Iphone => &IPHONE_TARGETS,
+    };
 
     let mut notices = Notices::default();
-    for package in phone_library_crates(root)? {
+    for package in phone_library_crates(root, targets)? {
         notices.add_crate(&package)?;
     }
-    notices.entries.push(
+    let llvm = match app {
+        App::Android => {
+            "The parts of LLVM that the Android NDK adds to it (libunwind, compiler-rt) are under Apache-2.0 WITH \
+             LLVM-exception, which asks for no notice in a compiled program."
+        }
+        App::Iphone => {
+            "The parts of LLVM's compiler-rt that it includes are under Apache-2.0 WITH LLVM-exception, which asks for \
+             no notice in a compiled program."
+        }
+    };
+    notices.entries.push(format!(
         "Rust's standard library (std, core, alloc and the parts they include): MIT (of MIT OR Apache-2.0). Copyrights in \
-         the Rust project are retained by their contributors. The parts of LLVM that the Android NDK adds to it \
-         (libunwind, compiler-rt) are under Apache-2.0 WITH LLVM-exception, which asks for no notice in a compiled \
-         program."
-            .into(),
-    );
+         the Rust project are retained by their contributors. {llvm}"
+    ));
     notices.mit.push("Rust's standard library".into());
 
-    let mut java = [
-        format!(
-            "JNA {jna} (Java Native Access): Apache-2.0 (of Apache-2.0 OR LGPL-2.1-or-later). Its source code: \
-             https://github.com/java-native-access/jna. What its LICENSE file says:\n\n{JNA_LICENSE}"
+    // the app around the library: in the Android app its Java part, with libraries of its own; the iPhone app has none
+    let (part_heading, part) = match app {
+        App::Android => ("The app's Java part", java_part(root, &mut notices)?),
+        App::Iphone => (
+            "The app's Swift part",
+            "SeedLock's own Swift code is under SeedLock's MIT license (above). The Swift code that UniFFI writes for \
+             this app (seedlock_ffi.swift) comes from UniFFI's templates, under MPL-2.0 (below). Swift's runtime and \
+             Apple's frameworks are part of iOS: the app brings no copy of its own."
+                .to_string(),
         ),
-        format!("libffi (C code inside JNA's libjnidispatch.so): MIT.\n{}", split_mit(LIBFFI_LICENSE).0.join("\n")),
-        format!("Kotlin's standard library {kotlin}: Apache-2.0.\nCopyright 2010-2024 JetBrains s.r.o. and Kotlin Programming Language contributors."),
-        "JetBrains Java Annotations 13.0 (org.jetbrains:annotations, which Kotlin's standard library uses): Apache-2.0.\nCopyright 2000-2013 JetBrains s.r.o."
-            .to_string(),
-    ];
-    if !split_mit(LIBFFI_LICENSE).1 {
-        return Err("libffi's license is no longer the MIT text".into());
-    }
-    notices.mit.push("libffi".into());
-    notices.apache.extend([format!("JNA {jna}"), format!("Kotlin's standard library {kotlin}"), "JetBrains Java Annotations 13.0".into()]);
+    };
+    let (title, library, uniffi_code) = match app {
+        App::Android => (title(version), "libseedlock_ffi.so", "The Kotlin code that UniFFI writes for this app (org.seedlock.ffi)"),
+        App::Iphone => (iphone_title(version), "libseedlock_ffi.a", "The Swift code that UniFFI writes for this app (seedlock_ffi.swift)"),
+    };
 
     let mut out = String::new();
     // a heading: its title, underlined, as a paragraph of its own (the app shows it as a heading)
     let heading = |out: &mut String, text: &str| out.push_str(&format!("\n\n{text}\n{}\n\n", "=".repeat(text.chars().count())));
-    out.push_str(&title(version));
+    out.push_str(&title);
     out.push_str(
         "\n\nSeedLock is free software under the MIT license. It is built from libraries by other authors, each under \
          its own license, and those licenses ask that you get their notices with the app: here they are. They were \
@@ -624,12 +650,10 @@ pub fn android_notices(root: &Path, version: &str) -> Result<String, String> {
     );
     heading(&mut out, "SeedLock");
     out.push_str(&reflow(&own_license));
-    heading(&mut out, "The Rust libraries in SeedLock's library (libseedlock_ffi.so)");
+    heading(&mut out, &format!("The Rust libraries in SeedLock's library ({library})"));
     out.push_str(&notices.entries.join("\n\n"));
-    heading(&mut out, "The app's Java part");
-    // JNA's LICENSE file is wrapped like a text file: reflowed; the other entries are one line each
-    java[0] = reflow(&java[0]);
-    out.push_str(&java.join("\n\n"));
+    heading(&mut out, part_heading);
+    out.push_str(&part);
 
     heading(&mut out, "The MIT License");
     out.push_str(&reflow(&format!(
@@ -645,8 +669,8 @@ pub fn android_notices(root: &Path, version: &str) -> Result<String, String> {
     if !notices.mpl.is_empty() {
         heading(&mut out, "Mozilla Public License, Version 2.0");
         out.push_str(&reflow(&format!(
-            "For {}, which SeedLock uses unchanged (where to find their source code is said above). The Kotlin code \
-             that UniFFI writes for this app (org.seedlock.ffi) comes from UniFFI's templates.\n\n{MPL_2_0}",
+            "For {}, which SeedLock uses unchanged (where to find their source code is said above). {uniffi_code} comes \
+             from UniFFI's templates.\n\n{MPL_2_0}",
             notices.mpl.join(", ")
         )));
     }
@@ -657,6 +681,31 @@ pub fn android_notices(root: &Path, version: &str) -> Result<String, String> {
     }
     out.push('\n');
     Ok(out)
+}
+
+/// The Android app's Java part: JNA (with libffi), Kotlin's standard library and the annotations it uses, whose
+/// versions it reads from the Gradle files. Adds them to the lists of the MIT and Apache texts.
+fn java_part(root: &Path, notices: &mut Notices) -> Result<String, String> {
+    let jna = version_in(&root.join("android/app/build.gradle.kts"), "net.java.dev.jna:jna:", '@')?;
+    let kotlin = version_in(&root.join("android/build.gradle.kts"), "id(\"org.jetbrains.kotlin.android\") version \"", '"')?;
+    let mut java = [
+        format!(
+            "JNA {jna} (Java Native Access): Apache-2.0 (of Apache-2.0 OR LGPL-2.1-or-later). Its source code: \
+             https://github.com/java-native-access/jna. What its LICENSE file says:\n\n{JNA_LICENSE}"
+        ),
+        format!("libffi (C code inside JNA's libjnidispatch.so): MIT.\n{}", split_mit(LIBFFI_LICENSE).0.join("\n")),
+        format!("Kotlin's standard library {kotlin}: Apache-2.0.\nCopyright 2010-2024 JetBrains s.r.o. and Kotlin Programming Language contributors."),
+        "JetBrains Java Annotations 13.0 (org.jetbrains:annotations, which Kotlin's standard library uses): Apache-2.0.\nCopyright 2000-2013 JetBrains s.r.o."
+            .to_string(),
+    ];
+    if !split_mit(LIBFFI_LICENSE).1 {
+        return Err("libffi's license is no longer the MIT text".into());
+    }
+    notices.mit.push("libffi".into());
+    notices.apache.extend([format!("JNA {jna}"), format!("Kotlin's standard library {kotlin}"), "JetBrains Java Annotations 13.0".into()]);
+    // JNA's LICENSE file is wrapped like a text file: reflowed; the other entries are one line each
+    java[0] = reflow(&java[0]);
+    Ok(java.join("\n\n"))
 }
 
 /// A text's paragraphs, each on one line (a phone's screen wraps them at its own width), with a blank line

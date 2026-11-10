@@ -3,6 +3,7 @@
 //!
 //! ```text
 //! seedlock-tools notices --android [--out FILE]      the license notices the app shows (android/build-rust.sh)
+//! seedlock-tools notices --ios [--out FILE]          the same for the iPhone app (ios/build-rust.sh)
 //! seedlock-tools check-apk FILE                      checks a release APK and puts it into dist/ (DEVELOPMENT.md)
 //! seedlock-tools check-apk --unsigned FILE           checks the app as the fixed build environment makes it
 //! seedlock-tools unsigned-apk SIGNED OUT             writes a signed APK without its signature (to compare it)
@@ -17,6 +18,7 @@ mod programs;
 
 const USAGE: &str = "SeedLock's tools for its releases (run them in SeedLock's folder):
   cargo run --locked -p seedlock-tools -- notices --android --out FILE   write the app's license notices
+  cargo run --locked -p seedlock-tools -- notices --ios --out FILE       the same for the iPhone app
   cargo run --locked -p seedlock-tools -- check-apk FILE                 check a release APK, put it into dist/
   cargo run --locked -p seedlock-tools -- check-apk --unsigned FILE      check the app before it is signed
   cargo run --locked -p seedlock-tools -- unsigned-apk SIGNED OUT        write a signed APK without its signature
