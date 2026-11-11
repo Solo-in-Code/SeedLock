@@ -23,9 +23,10 @@
 #   7. the iPhone app (preview), whose Rust library is the same as Android's (checked in 6, on every system,
 #      iOS's included): iOS has no permission to take away, so its Swift code must use no network API at all;
 #      it imports only Apple's frameworks listed below, Network only to read the network's state
-#      (NWPathMonitor, in NetworkCheck.swift); and its Xcode project links nothing but SeedLock's own library,
-#      with no Swift package, no entitlements, no Info.plist of its own, no background mode and no network
-#      setting
+#      (NWPathMonitor, in NetworkCheck.swift) and AVFoundation only to take pictures with the camera (in
+#      Camera.swift); it asks the person only for the camera; and its Xcode project links nothing but SeedLock's
+#      own library, with no Swift package, no entitlements, no Info.plist of its own, no background mode and no
+#      network setting
 # Needs the Rust toolchain: "cargo --version" must work. If it cannot, this script says FAIL (it never says OK).
 # Run it after every dependency update:  sh tools/audit-offline.sh
 set -eu
@@ -163,8 +164,15 @@ if [ -n "$own_swift" ]; then
 fi
 # shellcheck disable=SC2086
 imports=$(grep -hE '^[[:space:]]*import[[:space:]]' $swift_files | sed -E 's/^[[:space:]]*import[[:space:]]+//; s/[[:space:]].*//' | sort -u | tr '\n' ' ')
-if [ "$imports" != "Foundation Network Observation SwiftUI UIKit UniformTypeIdentifiers " ]; then
-    echo "FAIL: the iPhone app's Swift code imports other frameworks than Foundation, Network, Observation, SwiftUI, UIKit and UniformTypeIdentifiers; check what they do by hand: $imports"; exit 1
+if [ "$imports" != "AVFoundation Foundation Network Observation SwiftUI UIKit UniformTypeIdentifiers " ]; then
+    echo "FAIL: the iPhone app's Swift code imports other frameworks than AVFoundation (for the camera), Foundation, Network, Observation, SwiftUI, UIKit and UniformTypeIdentifiers; check what they do by hand: $imports"; exit 1
+fi
+# shellcheck disable=SC2086
+camera_users=$(grep -lE '^[[:space:]]*import[[:space:]]+AVFoundation([[:space:]]|$)' $swift_files | tr '\n' ' ')
+# of AVFoundation's names, only the camera, a session that takes its pictures, and the layer that shows them
+camera_names=$(grep -oE 'AV[A-Z][A-Za-z]+' "$ios/Camera.swift" | sort -u | grep -vxE 'AVFoundation|AVCaptureDevice|AVCaptureDeviceInput|AVCaptureSession|AVCaptureOutput|AVCaptureVideoDataOutput|AVCaptureVideoDataOutputSampleBufferDelegate|AVCaptureConnection|AVCaptureVideoPreviewLayer' || true)
+if [ "$camera_users" != "$ios/Camera.swift " ] || [ -n "$camera_names" ]; then
+    echo "FAIL: the iPhone app uses AVFoundation for more than taking pictures with the camera (Camera.swift): $camera_users $camera_names"; exit 1
 fi
 # shellcheck disable=SC2086
 network_users=$(grep -lE '^[[:space:]]*import[[:space:]]+Network([[:space:]]|$)' $swift_files | tr '\n' ' ')
@@ -175,6 +183,11 @@ if [ "$network_users" != "$ios/NetworkCheck.swift " ] || [ -n "$network_names" ]
 fi
 pbx=ios/SeedLock.xcodeproj/project.pbxproj
 [ -f "$pbx" ] || { echo "FAIL: the iPhone app's Xcode project ($pbx) was not found."; exit 1; }
+# what the app may ask the person for: only the camera (once in each of the Debug and Release settings)
+asks=$(grep -oE 'INFOPLIST_KEY_NS[A-Za-z]+UsageDescription' "$pbx" | sort -u | tr '\n' ' ')
+if [ "$asks" != "INFOPLIST_KEY_NSCameraUsageDescription " ]; then
+    echo "FAIL: the iPhone app asks for more than the camera, or not for it; check by hand: $asks"; exit 1
+fi
 linked=$(grep -E 'in Frameworks \*/ = \{isa = PBXBuildFile' "$pbx" | sed -E 's/.*\/\* (.*) in Frameworks \*\/.*/\1/' | tr '\n' ' ')
 if [ "$linked" != "SeedLockFFI.xcframework " ]; then
     echo "FAIL: the iPhone app links other libraries than SeedLock's own (SeedLockFFI.xcframework); check them by hand: $linked"; exit 1
@@ -198,4 +211,4 @@ echo "OK: all $libs libraries SeedLock is built from (on every system) have perm
 echo "OK: the phone app's library: $ffi_count crates in its dependency tree (on every system), none with network access; all $ffi_libs libraries it is built from have permissive licenses, except UniFFI's own $mpl crates (MPL-2.0)."
 echo "OK: the phone app asks Android only for the camera and the network state (INTERNET is taken out), JNA is its only other library, and its Kotlin code uses no network API."
 echo "OK: the build helper (crates/seedlock-tools) has no networking crate either, and starts only cargo and the Linux program it checks."
-echo "OK: the iPhone app's Swift code uses no network API and imports only Apple's frameworks for the screen, files and the network's state; its project links only SeedLock's library, with no package, entitlements or network setting."
+echo "OK: the iPhone app's Swift code uses no network API and imports only Apple's frameworks for the screen, files, the camera and the network's state; it asks only for the camera, and its project links only SeedLock's library, with no package, entitlements or network setting."
