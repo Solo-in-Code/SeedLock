@@ -82,6 +82,14 @@ final class Backups {
         try? Data(fingerprint.utf8).write(to: fingerprintFile(name), options: [.atomic, .completeFileProtection])
     }
 
+    /// The backups on this iPhone whose wallet (without a passphrase) has one of these fingerprints, as far as it is
+    /// known here.
+    func names(withFingerprintIn fingerprints: [String]) -> [String] {
+        names().filter { name in
+            fingerprint(name).map { fingerprints.contains($0) } ?? false
+        }
+    }
+
     /// The backup on this iPhone that is this very backup (the same backup line), if there is one.
     func same(_ text: String) -> String? {
         guard let wanted = try? backupText(text: text) else { return nil }

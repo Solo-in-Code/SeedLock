@@ -35,6 +35,9 @@ struct BackupScreen: View {
                     }
                 }
                 Section {
+                    Button("Sign a transaction") {
+                        model.show(.sign(name))
+                    }
                     Button("Wallet for Sparrow (xpub, descriptor, addresses)") {
                         model.askWallet(name: name, text: text, memoryMib: info.memoryMib) { open in
                             model.show(.sparrow(open, name))
@@ -43,8 +46,8 @@ struct BackupScreen: View {
                 } header: {
                     Text(verbatim: "Use it")
                 } footer: {
-                    Text(verbatim: "For Sparrow on a computer: a watch-only wallet, which shows the balance and "
-                        + "prepares payments, but cannot sign them.")
+                    Text(verbatim: "With Sparrow on a computer: it prepares payments with the wallet for Sparrow (a "
+                        + "watch-only wallet, which cannot sign them), and SeedLock signs them here.")
                 }
                 Section {
                     Button("Check the backup (its password, and the words on paper)") {

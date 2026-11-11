@@ -23,6 +23,12 @@ enum Route: Hashable {
     case qr(QrShown)
     /// A backup's wallet laid out for Sparrow (the backup's name with it).
     case sparrow(OpenWallet, String)
+    /// Signing a transaction with the backup of this name: where the transaction comes from.
+    case sign(String)
+    /// A transaction to check before signing it, with the wallet that signs it.
+    case review(Signing)
+    /// A signed transaction, to give back to Sparrow.
+    case signed(SignedShown)
     case about
 
     /// The seed this screen holds, if any.
@@ -37,10 +43,25 @@ enum Route: Hashable {
 
     /// What this screen holds and lets go of once no screen needs it any more: a seed, or a wallet.
     var held: Held? {
-        if case .sparrow(let open, _) = self {
+        switch self {
+        case .sparrow(let open, _):
             return open
+        case .review(let signing):
+            return signing
+        default:
+            return seed
         }
-        return seed
+    }
+
+    /// True for the screens that may stay while SeedLock is left during the prompt for a backup's password: they hold
+    /// nothing secret (a backup's screen, and the start of signing, with the transaction to sign).
+    var waitsWell: Bool {
+        switch self {
+        case .backup, .sign:
+            return true
+        default:
+            return false
+        }
     }
 
     /// True for the screens with a secret on them: those that hold a seed, and the one where a seed's words are typed
@@ -347,13 +368,14 @@ final class AppModel {
     }
 
     /// Asks for the password of the backup `name` (its text `text`), and whether its wallet uses a BIP39 passphrase
-    /// (and which); and for which network, when `network` is nil. Opens the backup, and hands the seed's wallet to
-    /// `then`.
+    /// (and which); and for which network, when `network` is nil. The prompt says `note` first, when there is one.
+    /// Opens the backup, and hands the seed's wallet to `then`.
     func askWallet(
-        name: String, text: String, memoryMib: Int32, network: Net? = nil, then: @escaping (OpenWallet) -> Void
+        name: String, text: String, memoryMib: Int32, network: Net? = nil, note: String? = nil,
+        then: @escaping (OpenWallet) -> Void
     ) {
         let opening = Opening.wallet(network)
-        ask(PasswordRequest(name: name, text: text, memoryMib: memoryMib, note: nil, opening: opening) { opened in
+        ask(PasswordRequest(name: name, text: text, memoryMib: memoryMib, note: note, opening: opening) { opened in
             if case .wallet(let wallet) = opened {
                 then(OpenWallet(wallet))
             }
@@ -409,10 +431,13 @@ final class AppModel {
     }
 
     /// Slow work ended without a result to show (a new backup not saved).
-    func workEnded(started: Int) {
-        if started == generation {
-            working = false
-        }
+    /// Work that began at `started` (`workStarted`) ended. True when what came of it may show: SeedLock was not left,
+    /// nor went online, meanwhile (else everything closed, and what came of it is to be let go of).
+    @discardableResult
+    func workEnded(started: Int) -> Bool {
+        guard started == generation else { return false }
+        working = false
+        return canShow
     }
 
     /// Several characters at once went into a password or a seed's words: pasted, most likely (or filled in by a
@@ -475,15 +500,11 @@ final class AppModel {
         updateCover()
     }
 
-    /// True when all SeedLock shows is a prompt for a backup's password over the first screen and a backup's screen:
-    /// no seed or wallet is open then, nor anything else that leaving SeedLock must close.
+    /// True when all SeedLock shows is a prompt for a backup's password over the first screen, a backup's screen, and
+    /// perhaps the start of signing: no seed or wallet is open then, nor anything else that leaving SeedLock must
+    /// close.
     private var waitsForPassword: Bool {
-        prompt != nil && !working && path.allSatisfy { route in
-            if case .backup = route {
-                return true
-            }
-            return false
-        }
+        prompt != nil && !working && path.allSatisfy { $0.waitsWell }
     }
 
     private func left() {

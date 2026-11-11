@@ -69,6 +69,12 @@ struct RootView: View {
             QrScreen(shown: shown)
         case .sparrow(let open, let name):
             SparrowScreen(model: model, open: open, name: name)
+        case .sign(let name):
+            SignScreen(model: model, name: name)
+        case .review(let signing):
+            ReviewScreen(model: model, signing: signing)
+        case .signed(let shown):
+            SignedScreen(model: model, shown: shown)
         case .about:
             AboutScreen()
         }

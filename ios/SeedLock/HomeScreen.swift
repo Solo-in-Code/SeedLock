@@ -87,8 +87,8 @@ struct HomeScreen: View {
             }
         } footer: {
             Text(verbatim: "SeedLock \(seedlockVersion()), iPhone app preview: so far it makes, keeps and checks "
-                + "backups, and lays out their wallets for Sparrow. It is not independently audited: try it with a "
-                + "test wallet or a small amount first.")
+                + "backups, lays out their wallets for Sparrow, and signs transactions. It is not independently "
+                + "audited: try it with a test wallet or a small amount first.")
         }
     }
 }

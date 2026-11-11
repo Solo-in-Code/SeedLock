@@ -1,20 +1,27 @@
 import SwiftUI
 import UniformTypeIdentifiers
 
-/// Adds a backup made elsewhere: from its file (.seedlock), or from its text pasted in, under a name the person
-/// chooses.
+/// Adds a backup made elsewhere: from its file (.seedlock), its QR code (read with the camera), or its text pasted in,
+/// under a name the person chooses.
 struct AddBackupScreen: View {
     let model: AppModel
     @State private var text = ""
     @State private var name = ""
     @State private var problem: String?
     @State private var picking = false
+    @State private var scanning = false
+    /// The backup came from a QR code that carries no name (a code made from the backup's text alone).
+    @State private var unnamed = false
 
     var body: some View {
         Form {
             Section {
                 Button("Open its file (.seedlock)") {
                     picking = true
+                }
+                Button("Scan its QR code") {
+                    problem = nil
+                    scanning = true
                 }
                 PasteButton(payloadType: String.self) { strings in
                     // the clipboard's text, read only because the button was tapped
@@ -42,6 +49,10 @@ struct AddBackupScreen: View {
                     .textInputAutocapitalization(.never)
             } header: {
                 Text(verbatim: "Its name on this iPhone")
+            } footer: {
+                if unnamed && name.isEmpty {
+                    Text(verbatim: "This QR code carries no name: type one.")
+                }
             }
             if let problem {
                 Section {
@@ -61,6 +72,19 @@ struct AddBackupScreen: View {
         .fileImporter(isPresented: $picking, allowedContentTypes: [.data]) { result in
             opened(result)
         }
+        .sheet(isPresented: $scanning) {
+            ScanScreen(target: .backup) { scanner in
+                // the QR codes that SeedLock shows and saves carry the backup's name, unless it was made from the
+                // backup's text alone
+                if let read = scanner.backupText() {
+                    take(read, suggestedName: nil)
+                    unnamed = backupNameIn(text: read) == nil
+                }
+                scanning = false
+            } cancel: {
+                scanning = false
+            }
+        }
         .onChange(of: text) { _, new in
             // a backup's QR code made by SeedLock carries its name
             if name.isEmpty, let suggested = backupNameIn(text: new) {
@@ -71,6 +95,7 @@ struct AddBackupScreen: View {
 
     private func take(_ backup: String, suggestedName: String?) {
         problem = nil
+        unnamed = false
         text = backup
         if let suggested = backupNameIn(text: backup) ?? suggestedName {
             name = suggested
