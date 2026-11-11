@@ -352,8 +352,8 @@ Everything in detail, including multisig, silent payments and the camera, is in 
   in the same signed list, built reproducibly like the programs); its README says how to install it, or to build it
   yourself.
 * [SeedLock for iPhone](ios/README.md), in progress: the same library in an iPhone app, built step by step. So far it
-  makes, keeps and checks backups, and lays out their wallets for Sparrow; for now you build it yourself on a Mac with
-  Xcode, for test wallets only.
+  makes, keeps and checks backups, lays out their wallets for Sparrow, and signs transactions with the camera; for now
+  you build it yourself on a Mac with Xcode, for test wallets only.
 
 ## License
 
