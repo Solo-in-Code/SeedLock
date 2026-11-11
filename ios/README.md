@@ -3,10 +3,12 @@
 The same SeedLock as an app for an iPhone that stays offline, as the Android app is for an Android phone.
 It is being built step by step. **So far** it makes a new seed and its backup (or the backup of a seed
 you already have), keeps your backups on the iPhone, opens a backup with its password to check it or to
-show its words, and copies a backup off the iPhone: as a file, as a QR code, or as a picture of it. And
-it lays out a backup's wallet for Sparrow: a watch-only wallet, as a QR code for Sparrow to scan, as
-three fields to type, or as files, with its first addresses to compare.
-Next come, one group at a time: signing with the camera, and multisig.
+show its words, and copies a backup off the iPhone: as a file, as a QR code, or as a picture of it. It
+lays out a backup's wallet for Sparrow: a watch-only wallet, as a QR code for Sparrow to scan, as three
+fields to type, or as files, with its first addresses to compare. And it signs the payments that
+Sparrow prepares: their QR code read with the iPhone's camera (or their file), everything checked on its
+screen, then the signed transaction back to Sparrow as an animated QR code (or a file).
+Next comes multisig.
 
 **Use it only with a test wallet for now.** It is a first preview, and not independently audited.
 
@@ -118,6 +120,19 @@ online. Then take the iPhone offline and open SeedLock:
    first receive addresses as SeedLock. **Script Type** shows the other address types, and **Silent
    payments** the silent payment wallet. **Save the QR code as a picture** and **Save all of it as a text
    file** save what the computer's menu 5 saves.
+8. **Sign a payment:** in Sparrow (the watch-only wallet of step 7, on a test network or with a small
+   amount), make a transaction on the **Send** tab, **Create Transaction**, then **Finalize Transaction
+   for Signing** and **Show QR**. On the iPhone: the backup's screen, **Sign a transaction**, **Scan the
+   QR code that Sparrow shows** (the first time, iOS asks whether SeedLock may use the camera), and hold
+   the camera toward Sparrow's animated code until every part has arrived. After the password, SeedLock
+   shows every input and output: check them, then **SIGN this transaction**. In Sparrow, **Scan QR**, and
+   hold the iPhone's animated code toward the computer's camera; Sparrow can then broadcast it. Or try the
+   .psbt files: Sparrow's **Save Transaction**, and SeedLock's **Open the .psbt file that Sparrow saved**
+   and **Save it as a file instead**.
+9. **A backup from its QR code:** **Add a backup** > **Scan its QR code**, and hold the backup's QR code
+   (step 6, shown on another phone, or printed) in front of the camera. Its text fills in, and its name
+   too when the code carries one: SeedLock's codes do (the phone apps', and the computer's menu 8 when
+   you give it the backup's name), but not a code made from the backup's text alone.
 
 ## How it differs from the Android app
 
@@ -146,6 +161,9 @@ online. Then take the iPhone offline and open SeedLock:
   iPhones with iOS 17 or newer, in Swift 5 mode.
 * `sh ios/swift-check/run.sh` checks the Swift side on a computer (a Mac, or Linux with Swift): it calls
   the library through the Swift code from `uniffi-bindgen`, with the app's own storage and helpers.
+* The camera reads QR codes with SeedLock's own reader, the Android app's: each picture's grey part goes
+  to the library (`QrScanner`), and nothing from the camera is kept. The app asks for nothing but the
+  camera; its question is the project's `INFOPLIST_KEY_NSCameraUsageDescription`.
 * **Never upload these from your Mac:** `ios/SeedLock.xcodeproj/project.pbxproj` once you chose your
   team (it then holds your team's ID; the tests fail on it), and the `xcuserdata` folders that Xcode
   makes (they are named after your Mac's user name). Upload the files from SeedLock's source instead.
