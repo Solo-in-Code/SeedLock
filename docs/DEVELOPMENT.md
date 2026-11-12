@@ -236,9 +236,13 @@ type, with the first addresses to compare and the other address types; or the se
 it as files, as the computer's menu 5 does (its QR code as a picture, and all of it as text); it signs transactions, as
 the Android app does (from Sparrow's animated QR code, read with the camera, or its .psbt file; the network from the
 transaction's key paths, or asked; a word when the backup is not one of the transaction's wallets; every input and
-output shown for review before signing; the signed transaction back as an animated QR code, or a .psbt file); and it
-shows the license notices. The next group brings multisig. It is not in the releases: Xcode puts it on one's own iPhone
-(with a free Apple ID, for 7 days at a time).
+output shown for review before signing; the signed transaction back as an animated QR code, or a .psbt file); it handles
+multisig wallets, as the Android app does (a seed's key for one, laid out for Sparrow: its key in the wallet on this
+iPhone that it is a cosigner of, or its key for the network and the kind of wallet chosen; the wallets made in Sparrow,
+added from their QR code, their file or their descriptor after a check of their cosigners and their first receive
+address, kept as `.multisig` files, copied and deleted; their payments checked and signed by each cosigner in turn); and
+it shows the license notices. It now does what the Android app does; what remains are the checks of the whole app on
+more iPhones. It is not in the releases: Xcode puts it on one's own iPhone (with a free Apple ID, for 7 days at a time).
 
 How it is made:
 
@@ -298,10 +302,10 @@ secret (an xpub, a descriptor and addresses), so it is not covered while SeedLoc
 screenshot of it, SeedLock says that it shows the wallet's addresses. A QR code shows with the screen at full brightness
 and kept on (`Brightness`), as before once it is gone or SeedLock is left. The backups are the same `.seedlock` files,
 in the app's own storage, with iOS's file protection "complete" (encrypted while the iPhone is locked), and left out of
-the iPhone's backups to iCloud or a computer (`Backups`). A password typed into SwiftUI is Swift text, which cannot be
-wiped: the field is emptied at once, the bytes handed to Rust are wiped after the call, and Rust wipes its own copy; a
-BIP39 passphrase likewise (the Swift code that UniFFI writes copies them once more on the way, without wiping that
-copy).
+the iPhone's backups to iCloud or a computer (`Backups`); the multisig wallets likewise, as the same `.multisig` files
+(`MultisigWallets`: public keys only). A password typed into SwiftUI is Swift text, which cannot be wiped: the field is
+emptied at once, the bytes handed to Rust are wiped after the call, and Rust wipes its own copy; a BIP39 passphrase
+likewise (the Swift code that UniFFI writes copies them once more on the way, without wiping that copy).
 
 `ios/swift-check/run.sh` calls the library from Swift on a computer (a Mac, or Linux with Swift), as
 `android/jvm-check` does from Kotlin: see [The iPhone app, checked on a
@@ -1082,12 +1086,12 @@ computers](#confirmed-on-real-computers)):
 
 * The Swift code type-checks with Apple's Swift compiler 6.0.3 (the Swift of Xcode 16; Ubuntu's `swiftlang` package),
   in Swift 5 mode as the project sets it: all of the app's code and the Swift code that `uniffi-bindgen` writes,
-  against stand-ins for SwiftUI, UIKit, Network and UniformTypeIdentifiers that declare, with their real signatures,
-  the parts the app uses (written for this check, never part of the app). With UIKit's classes held to the main
-  thread, as Swift takes them from iOS's SDK, there is no warning either; with the strictest concurrency checking,
+  against stand-ins for SwiftUI, UIKit, AVFoundation, Network and UniformTypeIdentifiers that declare, with their real
+  signatures, the parts the app uses (written for this check, never part of the app). With UIKit's classes held to the
+  main thread, as Swift takes them from iOS's SDK, there is no warning either; with the strictest concurrency checking,
   only warnings about values passed between threads, as expected in Swift 5 mode.
 * `ios/swift-check/run.sh`, with the same compiler, calls the library the way the app does, through the Swift code from
-  `uniffi-bindgen` (80 checks): the BIP39 test seed and its fingerprint; a wrong word and a wrong password refused, each
+  `uniffi-bindgen` (95 checks): the BIP39 test seed and its fingerprint; a wrong word and a wrong password refused, each
   with its own error (`SeedLockError.WrongPassword` for the password, which the prompt asks again for); a backup made
   and opened again, and a damaged one refused; names cleaned up and refused as the computer does them; a backup's QR
   code text with its name, and its QR code's modules. New seeds: of 24 words, two of them different, 13 words refused;
@@ -1103,19 +1107,28 @@ computers](#confirmed-on-real-computers)):
   it; signed, the transaction given staying as it was; the signed one as an animated QR code (10 codes of the same
   size), read back by the camera's reader from pictures given as the app gives them: the same signed transaction; a
   backup's QR code read by the camera's reader, with its name; a test network's transaction, and one without key paths,
-  which says no network; a file that is not a transaction refused. And the app's own files: `Backups.swift` (the files
-  in alphabetical order, a name taken whatever its case, a backup never replaced, the same backup found by its line, the
-  computer's file format, a fingerprint kept only for a backup that is there, and only a real one, and gone with the
-  backup), `Helpers.swift` (a file too large refused; a backup opened on a thread of its own, its result back on the
-  main thread), `NewSeeds.swift` (the three words of the quick check, different and in order; a word typed back whole or
-  by its first 3 letters or more, unless other words start with them too; words numbered as on paper; a new backup
-  saved, checked by opening it again, and never replacing one; a password too short refused, with nothing saved),
-  `SparrowText.swift` (the 4 address types named and ordered as Sparrow and the library name them; the wallet and the
-  silent payment wallet as text files, named as the computer names them; for the BIP39 test seed, the wallet's file was
-  also compared with the one that the computer's menu 5 saves: byte for byte the same), `CameraPicture.swift` (a camera
-  picture's rows, without their padding), `SignText.swift` (the signed file's name, and what SeedLock says when the
-  backup is not the transaction's wallet), `Backups.swift` again (the backups that are a transaction's wallets) and
-  `Notices.swift` (the notices read as the About screen shows them).
+  which says no network; a file that is not a transaction refused. Multisig, with a 2-of-3 wallet on a test network that
+  embit made as Sparrow exports it, from the test seed (cosigner 1) and two other BIP39 test vectors: its kind, network,
+  cosigners and first receive address; the 3 kinds named as Sparrow names them; the wallet kept as a `.multisig` file
+  (written as the computer and the Android app write it) and read back as the same wallet, a second one of the same name
+  refused; read from its QR code by the camera's reader, a backup's code refused there; a payment from it, for a test
+  network, reviewed with the wallet kept here (cosigner 1 adds its signature, the change verified from all the
+  cosigners' keys) and refused without it; signed by cosigner 1, with 1 of the 2 signatures it needs; the seed's key in
+  that wallet (its key path, xpub and QR code), and without a wallet kept here its key for each kind, for real bitcoin
+  and for testing; another wallet (a passphrase) not a cosigner; the backups here that are its cosigners; the wallet
+  deleted. And the app's own files: `Backups.swift` (the files in alphabetical order, a name taken whatever its case, a
+  backup never replaced, the same backup found by its line, the computer's file format, a fingerprint kept only for a
+  backup that is there, and only a real one, and gone with the backup), `Helpers.swift` (a file too large refused; a
+  backup opened on a thread of its own, its result back on the main thread), `NewSeeds.swift` (the three words of the
+  quick check, different and in order; a word typed back whole or by its first 3 letters or more, unless other words
+  start with them too; words numbered as on paper; a new backup saved, checked by opening it again, and never replacing
+  one; a password too short refused, with nothing saved), `SparrowText.swift` (the 4 address types named and ordered as
+  Sparrow and the library name them; the wallet and the silent payment wallet as text files, named as the computer names
+  them; for the BIP39 test seed, the wallet's file was also compared with the one that the computer's menu 5 saves: byte
+  for byte the same), `CameraPicture.swift` (a camera picture's rows, without their padding), `SignText.swift` (the
+  signed file's name, and what SeedLock says when the backup is not the transaction's wallet), `Backups.swift` again
+  (the backups that are a transaction's wallets), `MultisigWallets.swift` and `MultisigKeys.swift` (the multisig checks
+  above) and `Notices.swift` (the notices read as the About screen shows them).
 * `ios/build-rust.sh` was run with stand-ins for macOS's `uname`, rustup, Xcode's tools and the builds for iOS (the
   real cargo for the rest): its steps on a Mac with an Apple chip and with an Intel processor, the oldest iOS it
   builds for, the user name kept out of the library, and a library that still holds it refused; and what it says
@@ -1341,9 +1354,21 @@ By SeedLock's users:
   Sparrow (Scan QR), ready to broadcast; the signed .psbt file saved, which Sparrow opened; a .psbt file from Sparrow
   opened and reviewed; **Cancel** back to the backup's screen; another backup's transaction, the right backup named,
   and the wrong one opened anyway with nothing to sign; leaving SeedLock while the camera was on closed it; the
-  camera turned off in Settings, which SeedLock said. A backup added from its QR code (a saved picture): its text
-  read, but its name not, because that picture's code carried none (a code made from the backup's text alone); the
-  screen now says so (item 10 below).
+  camera turned off in Settings, which SeedLock said. A backup added from its QR code: from the computer's picture
+  (menu 8, given the backup's name) its text and its name; from a picture whose code carries no name (made from the
+  backup's text alone) its text, with "This QR code carries no name: type one." under the name.
+* **Version 0.5.0, the iPhone app's fourth group, second part: multisig** (Xcode 27.2, an iPhone 13 with iOS 27.2):
+  **Key for a multisig wallet** on a backup's screen, for real bitcoin and for testing and for each Script Type (tpub
+  and m/48'/1'/0'/2', xpub and m/48'/0'/0'/2', nested ending in /1', legacy m/45'); Sparrow's xpub camera button read
+  its QR code, filled in the keystore and named it after the backup; a 2-of-3 wallet made that way on a test network,
+  added to the iPhone from Sparrow's QR code (its kind, its 3 cosigners with the backups on the iPhone in green, the
+  same first receive address as Sparrow), named and listed on the first screen; the same wallet from Sparrow's file
+  said **Already on this iPhone**; the wallet's screen with a button to sign for each backup; the key again, now taken
+  from the wallet ("cosigner N of..."); a copy saved as a `.multisig` file, the wallet deleted, and then its payment
+  refused ("not registered here... Add the wallet to this phone first"); the wallet added again from the copy; the
+  payment signed by one cosigner (the orange note, Sparrow showing 1 of 2 signatures), then by the second ("That is
+  enough"), and broadcast by Sparrow. Asked for after it: the network's choice on the key's screen now names the
+  networks ("Real bitcoin (mainnet)", "Testing (testnet or signet)"), as the password prompt does.
 * Also confirmed: reading a backup from its QR code; the online warning on Linux; and multisig with Sparrow (2 of 3,
   native SegWit): the keys typed in or scanned by Sparrow's xpub button, the wallet's descriptor from a file, from an
   animated UR code and from static BBQr codes at two densities (in good light), and its transactions signed by one
@@ -1372,8 +1397,6 @@ You should know these:
    Linux): each needs its own aapt2, which the list holds.
 9. The iPhone app (in progress, from 0.5.0) with Xcode on a Mac with an Intel processor (its simulator then runs
    `x86_64-apple-ios`), and on iOS 17.
-10. The iPhone app's **Add a backup** > **Scan its QR code**: the name filled in from a code that carries one, and
-    "This QR code carries no name: type one." under the name for a code that does not.
 
 Menu 9 and `seedlock camera` let anyone check their own camera setup.
 
@@ -1606,8 +1629,9 @@ KeePassDX can, AliasVault cannot yet). Next steps: more tests on real phones, an
 
 **iPhone.** The iPhone app is being built from the same library (UniFFI writes Swift as well), step by step (see [The
 iPhone app](#the-iphone-app-in-progress)): in 0.5.0 it keeps backups, opens them to check them or show their words,
-makes new seeds and their backups, copies backups off the iPhone, lays out their wallets for Sparrow, and signs
-transactions with the camera. Next: multisig; then the checks of the whole app on real iPhones.
+makes new seeds and their backups, copies backups off the iPhone, lays out their wallets for Sparrow, signs
+transactions with the camera, and handles multisig wallets: it does what the Android app does. Next: the checks of the
+whole app on more iPhones.
 
 The phone apps and the command-line program write the same backups and the same QR codes (the backup's name in its QR
 code, the wallet for Sparrow as a QR code that names the keystore), so each opens what another made (use `--kdf light`
