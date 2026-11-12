@@ -1,7 +1,8 @@
 // Calls SeedLock's library the way the iPhone app does, but on a computer: through the Swift code that
 // uniffi-bindgen writes, with the app's own storage (Backups.swift), helpers (Helpers.swift), new backups
 // (NewSeeds.swift), wallet for Sparrow as text (SparrowText.swift), camera pictures (CameraPicture.swift), texts for
-// signing (SignText.swift) and reader of the license notices (Notices.swift).
+// signing (SignText.swift), multisig wallets (MultisigWallets.swift, MultisigKeys.swift) and reader of the license
+// notices (Notices.swift).
 // ios/swift-check/run.sh builds it and runs it; its one argument is the notices that `seedlock-tools notices --ios`
 // wrote.
 import Foundation
@@ -374,6 +375,105 @@ do {
             .hasPrefix("This transaction is for the wallets 0f056943, 12345678. This backup")
             && !otherBackupText(signers: ["0f056943"], ours: "73c5da0a", here: []).contains("on this iPhone"),
           "another backup's transaction: what SeedLock says")
+
+    // multisig (MultisigScreens.swift): a 2-of-3 wallet on a test network, made with embit as Sparrow exports it, from
+    // three seeds: the BIP39 test seed (73c5da0a, cosigner 1) and two other BIP39 test vectors; and a payment from it
+    // (100 000 sat in from 0/0, 60 000 out, 39 000 change to 1/0)
+    let msDescriptor =
+        "wsh(sortedmulti(2,[73c5da0a/48h/1h/0h/2h]tpubDFH9dgzveyD8zTbPUFuLrGmCydNvxehyNdUXKJAQN8x4aZ4j6UZqGfn"
+        + "qFrD4NqyaTVGKbvEW54tsvPTK2UoSbCC1PJY8iCNiwTL3RWZEheQ/<0;1>/*,[b8688df1/48h/1h/0h/2h]tpubDEfobrrtptRT"
+        + "bKf4gysDhoabneABDTAcdj3Vbn4XwPsLE2pmqpizSPRG6zHsbAMuiSgWmWPsYCLHTKTPpyrGJ5rAoTpKoQNZcxodiPf2tSJ/<0;1"
+        + ">/*,[28645006/48h/1h/0h/2h]tpubDEwqCvJxKwKWX9xvRe48uofWJn1Y89Jn8UeH1Efrjb1UEVjUDy3URYTiqWaVCW7WdvHrL"
+        + "8XrSihHEhTwv5H3VDJoakjuCHiAnr6xcF2Xm4s/<0;1>/*))#jhurgr69"
+    let msPsbt =
+        "cHNidP8BAH0CAAAAAd3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3dAAAAAAD/////AmDqAAAAAAAAFgAUZwyqeeUdeO0M"
+        + "WDuJ/znZxJtxmedYmAAAAAAAACIAILf6RAk+bR3QSZ9X+fV3qb1UX6jWBYcBJlSPsyFu/D9NAAAAAAABASughgEAAAAAACIAIBx6"
+        + "Kngm+cXgaaUHmPTvPQ347MRPRdlpDrT2L1YB2127AQVpUiEDC5DtLoa61/Kk/pdpu0F9e6nKoRJIB9v7Ni377rZefgEhAz1pO9Gj"
+        + "7OE59iq1KijjTAacjWjxh4jKX1sv+dgAcw7yIQOqk7anDtIWWK8vr8xzRMzFv/BwPNhyvZ2fBoJeAvIUXFOuIgYDC5DtLoa61/Kk"
+        + "/pdpu0F9e6nKoRJIB9v7Ni377rZefgEcc8XaCjAAAIABAACAAAAAgAIAAIAAAAAAAAAAACIGA6qTtqcO0hZYry+vzHNEzMW/8HA8"
+        + "2HK9nZ8Ggl4C8hRcHLhojfEwAACAAQAAgAAAAIACAACAAAAAAAAAAAAiBgM9aTvRo+zhOfYqtSoo40wGnI1o8YeIyl9bL/nYAHMO"
+        + "8hwoZFAGMAAAgAEAAIAAAACAAgAAgAAAAAAAAAAAAAABAWlSIQOgfTvgutY8gDXSHJe0EIkNPToZ0uQDr7P8/GgmqiY8diEDqUzx"
+        + "FM+rl+ejiETaTa8XnG8vd+hjpsAfgM6Aowt7x9EhA89K5PO/TB7d6PeRhG3YHEhsEXkRqOlz5G7NrB+qEB5qU64iAgOgfTvgutY8"
+        + "gDXSHJe0EIkNPToZ0uQDr7P8/GgmqiY8dhxzxdoKMAAAgAEAAIAAAACAAgAAgAEAAAAAAAAAIgIDz0rk879MHt3o95GEbdgcSGwR"
+        + "eRGo6XPkbs2sH6oQHmocuGiN8TAAAIABAACAAAAAgAIAAIABAAAAAAAAACICA6lM8RTPq5fno4hE2k2vF5xvL3foY6bAH4DOgKML"
+        + "e8fRHChkUAYwAACAAQAAgAAAAIACAACAAQAAAAAAAAAA"
+    let msKey = "tpubDFH9dgzveyD8zTbPUFuLrGmCydNvxehyNdUXKJAQN8x4aZ4j6UZqGfnq"
+        + "FrD4NqyaTVGKbvEW54tsvPTK2UoSbCC1PJY8iCNiwTL3RWZEheQ"
+    let ms = try MultisigWallet.fromText(text: "# Receive and change descriptor:\n" + msDescriptor + "\n")
+    let msFirst = try ms.receiveAddress(index: 0)
+    check(ms.label() == "2 of 3" && ms.threshold() == 2 && ms.cosignerCount() == 3 && ms.kind() == .nativeSegwit
+            && !ms.mainnet() && ms.cosigners().map(\.fingerprint) == ["73c5da0a", "b8688df1", "28645006"]
+            && ms.positionOf(fingerprint: "73c5da0a") == 1 && ms.positionOf(fingerprint: "0f056943") == nil,
+          "a 2-of-3 multisig wallet from Sparrow's file: \(ms.label()), \(ms.kindName()), \(ms.networkName())")
+    check(msFirst == "tb1qr3az57pxl8z7q6d9q7v0fmeaphuwe3z0ghvkjr457ch4vqwmtkasmn0gme"
+            && ms.defaultName() == "multisig-2-of-3",
+          "its first receive address, as embit makes it; the name SeedLock suggests: \(ms.defaultName())")
+    check(multisigKinds.map { multisigKindName(kind: $0) }
+            == ["Native Segwit (P2WSH)", "Nested Segwit (P2SH-P2WSH)", "Legacy (P2SH)"],
+          "the 3 kinds of multisig wallet, named and ordered as Sparrow names them")
+    let wallets = MultisigWallets(dir: folder.appending(path: "multisig", directoryHint: .isDirectory))
+    let msName = try checkWalletName(typed: " Family.multisig ")
+    try wallets.save(msName, contents: try ms.fileContents(name: msName))
+    let secondFamily = failure { try wallets.save("family", contents: "x") }
+    let msFile = try wallets.read("Family")
+    let kept = try wallets.wallet("Family")
+    check(msName == "Family" && wallets.names() == ["Family"] && wallets.taken("FAMILY") == "Family"
+            && secondFamily != nil && kept.sameAs(other: ms) && wallets.same(ms) == "Family"
+            && wallets.all().map(\.name) == ["Family"],
+          "kept on this iPhone as \"Family.multisig\", and read back as the same wallet; a second \"family\" refused")
+    check(msFile.hasPrefix("# SeedLock multisig wallet \"Family\": 2 of 3, Native Segwit (P2WSH), a test network "
+            + "(testnet or signet)\n") && msFile.contains("\n# First receive address: \(msFirst)\n"),
+          "its file, as the computer and the Android app write it")
+    let msScanner = QrScanner(target: .multisigWallet)
+    let notWallet = try read(msScanner, backupCode, padding: 0)
+    let msStep = try read(msScanner, try qrCode(text: msDescriptor), padding: 32)
+    check(!notWallet.done && notWallet.message?.contains("not a wallet descriptor") == true && msStep.done
+            && (try? msScanner.multisigWallet())?.sameAs(other: ms) == true,
+          "read from its QR code by the camera's reader (and a backup's code refused: \(notWallet.message ?? ""))")
+    let registered = wallets.all()
+    let msTx = try Transaction.fromBytes(data: Data(base64Encoded: msPsbt) ?? Data())
+    check(msTx.networkHintWith(multisig: registered) == .testNetwork && msTx.inputFingerprints().contains("73c5da0a"),
+          "the multisig wallet's payment: for a test network, with cosigner 73c5da0a among its signers")
+    let msReview = try forTesting.review(transaction: msTx, multisig: registered)
+    check(msReview.inputsToSign == 1 && msReview.inputs[0].mine && !msReview.outputs[1].external
+            && msReview.outputs[1].note.hasPrefix("change back to the multisig wallet \"Family\"")
+            && msReview.multisig?.hasPrefix("Multisig \"Family\", 2 of 3: this seed is cosigner 1") == true,
+          "reviewed with the multisig wallet on this iPhone: \(msReview.multisig ?? "")")
+    let unknownWallet = failure { _ = try forTesting.review(transaction: msTx, multisig: []) }
+    check(unknownWallet != nil,
+          "without the multisig wallet on this iPhone, refused: \(unknownWallet.map(userText) ?? "")")
+    let msSigned = try forTesting.sign(transaction: msTx, multisig: registered)
+    check(msSigned.inputs == 1 && msSigned.multisig?.contains("1 of the 2 signatures") == true,
+          "signed by cosigner 1: \(msSigned.multisig ?? "")")
+    switch try cosigning(forTesting, backup: "my wallet", registered: registered) {
+    case .known(let walletName, let position, let key):
+        check(walletName == "Family" && position == 1 && key.derivation == "m/48'/1'/0'/2'" && key.xpub == msKey
+                && key.keyWithOrigin == "[73c5da0a/48h/1h/0h/2h]" + msKey && key.label == "my wallet"
+                && key.qr.hasPrefix("UR:CRYPTO-ACCOUNT/") && key.text.contains(key.qr),
+              "the seed's key in the multisig wallet on this iPhone: cosigner 1 of \"Family\", as its file has it")
+    case .choose:
+        check(false, "the seed's key in the multisig wallet on this iPhone")
+    }
+    switch try cosigning(wallet, backup: "my wallet", registered: []) {
+    case .choose(let keys):
+        check(keys.count == 3 && keys[.nativeSegwit]?.testing.xpub == msKey
+                && keys[.nativeSegwit]?.mainnet.derivation == "m/48'/0'/0'/2'"
+                && keys[.nestedSegwit]?.mainnet.derivation == "m/48'/0'/0'/1'"
+                && keys[.legacy]?.mainnet.derivation == "m/45'" && keys[.legacy]?.testing.derivation == "m/45'"
+                && keys[.nativeSegwit]?.mainnet.xpub.hasPrefix("xpub") == true,
+              "no multisig wallet on this iPhone: the seed's key for each kind, for real bitcoin and for testing")
+    case .known:
+        check(false, "no multisig wallet on this iPhone: the seed's key for each kind")
+    }
+    let notCosigner = failure { _ = try withPassphrase.cosignerKeyIn(wallet: ms, name: "x") }
+    check(notCosigner != nil, "another wallet (a passphrase) is not one of its cosigners")
+    let msBackups = Backups(dir: folder.appending(path: "ms-backups", directoryHint: .isDirectory))
+    try msBackups.save("Cosigner one", contents: backup.fileContents)
+    msBackups.rememberFingerprint("Cosigner one", "73c5da0a")
+    check(cosignersHere(ms, backups: msBackups).map { "\($0.position) \($0.backup)" } == ["1 Cosigner one"],
+          "the backups on this iPhone that are its cosigners, with their places in it")
+    wallets.delete("Family")
+    check(wallets.names().isEmpty && wallets.all().isEmpty, "a multisig wallet deleted")
 
     // slow work runs on a thread of its own, and its result comes back on the main thread, as in the app
     var result: Result<(Seed, String?), Error>?
