@@ -1,14 +1,16 @@
 # SeedLock for iPhone (in progress)
 
 The same SeedLock as an app for an iPhone that stays offline, as the Android app is for an Android phone.
-It is being built step by step. **So far** it makes a new seed and its backup (or the backup of a seed
-you already have), keeps your backups on the iPhone, opens a backup with its password to check it or to
-show its words, and copies a backup off the iPhone: as a file, as a QR code, or as a picture of it. It
-lays out a backup's wallet for Sparrow: a watch-only wallet, as a QR code for Sparrow to scan, as three
-fields to type, or as files, with its first addresses to compare. And it signs the payments that
-Sparrow prepares: their QR code read with the iPhone's camera (or their file), everything checked on its
-screen, then the signed transaction back to Sparrow as an animated QR code (or a file).
-Next comes multisig.
+It was built step by step, and now does what the Android app does. It makes a new seed and its backup
+(or the backup of a seed you already have), keeps your backups on the iPhone, opens a backup with its
+password to check it or to show its words, and copies a backup off the iPhone: as a file, as a QR code,
+or as a picture of it. It lays out a backup's wallet for Sparrow: a watch-only wallet, as a QR code for
+Sparrow to scan, as three fields to type, or as files, with its first addresses to compare. It signs the
+payments that Sparrow prepares: their QR code read with the iPhone's camera (or their file), everything
+checked on its screen, then the signed transaction back to Sparrow as an animated QR code (or a file).
+And it handles multisig wallets: a seed's key for one, laid out for Sparrow; the wallets made in Sparrow,
+kept on the iPhone; and their payments, checked and signed by each cosigner in turn. What remains are
+the checks of the whole app on more iPhones.
 
 **Use it only with a test wallet for now.** It is a first preview, and not independently audited.
 
@@ -133,6 +135,15 @@ online. Then take the iPhone offline and open SeedLock:
    (step 6, shown on another phone, or printed) in front of the camera. Its text fills in, and its name
    too when the code carries one: SeedLock's codes do (the phone apps', and the computer's menu 8 when
    you give it the backup's name), but not a code made from the backup's text alone.
+10. **Multisig:** on a backup's screen, **Key for a multisig wallet**: SeedLock shows the seed's key for
+    Sparrow (choose the network and the kind of wallet first). In Sparrow, **File > New Wallet**,
+    **Multi Signature**, and for this seed's keystore **Watch Only Wallet** and the camera button next to
+    the xpub field: hold the iPhone's code toward the computer's camera. Once the wallet is made in
+    Sparrow (with its other cosigners), on the iPhone's first screen **Add a multisig wallet**, and scan
+    the wallet's QR code in Sparrow (its **Settings** tab, the QR code button under **Script Policy**):
+    SeedLock shows its cosigners and its first receive address, which Sparrow must show too. Then sign a
+    payment from it as in step 8: the multisig wallet's screen offers its cosigners on this iPhone, and
+    the review says how many signatures it still needs.
 
 ## How it differs from the Android app
 
