@@ -137,7 +137,7 @@ struct SignScreen: View {
 
     /// The network decides which wallet signs: the transaction's key paths say it, or the password prompt asks.
     private func network(_ transaction: Transaction) {
-        switch transaction.networkHintWith(multisig: []) {
+        switch transaction.networkHintWith(multisig: model.multisig.all()) {
         case .mainnet:
             unlock(transaction, network: .mainnet, note: nil)
         case .testNetwork:
@@ -167,13 +167,15 @@ struct SignScreen: View {
         }
     }
 
-    /// The transaction checked against the wallet, away from the screen's thread; then its review.
+    /// The transaction checked against the wallet (and the multisig wallets on this iPhone), away from the screen's
+    /// thread; then its review.
     private func check(_ transaction: Transaction, with open: OpenWallet) {
         guard let wallet = open.wallet else { return }
         busy = true
+        let registered = model.multisig.all()
         let started = model.workStarted()
         inBackground {
-            try wallet.review(transaction: transaction, multisig: [])
+            try wallet.review(transaction: transaction, multisig: registered)
         } done: { result in
             busy = false
             guard model.workEnded(started: started) else {
@@ -182,7 +184,9 @@ struct SignScreen: View {
             }
             switch result {
             case .success(let review):
-                let route = Route.review(Signing(open, transaction: transaction, review: review))
+                let route = Route.review(
+                    Signing(open, transaction: transaction, review: review, registered: registered)
+                )
                 model.showInstead(route)
                 if model.path.last != route {
                     open.close()
@@ -196,16 +200,18 @@ struct SignScreen: View {
 }
 
 /// A transaction to sign and the wallet that signs it, held while its review is on the screen: `close()` lets go of
-/// the wallet.
+/// the wallet. With them, the multisig wallets on this iPhone that the review took into account.
 final class Signing: Held, Hashable {
     private let open: OpenWallet
     let transaction: Transaction
     let review: TxReview
+    let registered: [RegisteredMultisig]
 
-    init(_ open: OpenWallet, transaction: Transaction, review: TxReview) {
+    init(_ open: OpenWallet, transaction: Transaction, review: TxReview, registered: [RegisteredMultisig]) {
         self.open = open
         self.transaction = transaction
         self.review = review
+        self.registered = registered
     }
 
     var wallet: Wallet? {
@@ -280,6 +286,11 @@ struct ReviewScreen: View {
                     Text(verbatim: "This wallet has nothing to sign in this transaction. Is it the right backup, "
                         + "passphrase and network?")
                         .foregroundStyle(Color.red)
+                    if !model.multisigNames.isEmpty {
+                        Text(verbatim: "For a multisig wallet's payment: the multisig wallet's screen shows which "
+                            + "backups on this iPhone are its cosigners.")
+                            .font(.footnote)
+                    }
                 } else {
                     Button("SIGN this transaction (\(inputsText(review.inputsToSign)))") {
                         sign()
@@ -327,9 +338,10 @@ struct ReviewScreen: View {
         busy = true
         problem = nil
         let transaction = signing.transaction
+        let registered = signing.registered
         let started = model.workStarted()
         inBackground {
-            try wallet.sign(transaction: transaction, multisig: [])
+            try wallet.sign(transaction: transaction, multisig: registered)
         } done: { result in
             busy = false
             guard model.workEnded(started: started) else { return }

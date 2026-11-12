@@ -61,7 +61,7 @@ struct HomeScreen: View {
                 }
             }
             NavigationLink(value: Route.addBackup) {
-                Label("Add a backup (its file, or its text)", systemImage: "plus")
+                Label("Add a backup (its file, its QR code, or its text)", systemImage: "plus")
             }
         } header: {
             Text(verbatim: "Backups on this iPhone")
@@ -82,13 +82,31 @@ struct HomeScreen: View {
             Text(verbatim: "New")
         }
         Section {
+            if model.multisigNames.isEmpty {
+                Text(verbatim: "None yet. A multisig wallet needs several seeds to spend (for example any 2 of 3): "
+                    + "Sparrow keeps the wallet, and each seed signs on its own. To make one, open a backup and choose "
+                    + "\"Key for a multisig wallet\"; once the wallet is made in Sparrow, add it here.")
+                    .font(.footnote)
+            }
+            ForEach(model.multisigNames, id: \.self) { name in
+                NavigationLink(value: Route.multisig(name)) {
+                    Text(verbatim: name)
+                }
+            }
+            NavigationLink(value: Route.addMultisig) {
+                Label("Add a multisig wallet (from Sparrow)", systemImage: "plus")
+            }
+        } header: {
+            Text(verbatim: "Multisig wallets")
+        }
+        Section {
             NavigationLink(value: Route.about) {
                 Text(verbatim: "About SeedLock and its licenses")
             }
         } footer: {
-            Text(verbatim: "SeedLock \(seedlockVersion()), iPhone app preview: so far it makes, keeps and checks "
-                + "backups, lays out their wallets for Sparrow, and signs transactions. It is not independently "
-                + "audited: try it with a test wallet or a small amount first.")
+            Text(verbatim: "SeedLock \(seedlockVersion()), iPhone app preview: it does what the Android app does "
+                + "(backups, the wallet for Sparrow, signing, multisig). It is not independently audited: try it with "
+                + "a test wallet or a small amount first.")
         }
     }
 }

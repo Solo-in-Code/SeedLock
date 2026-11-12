@@ -29,6 +29,14 @@ enum Route: Hashable {
     case review(Signing)
     /// A signed transaction, to give back to Sparrow.
     case signed(SignedShown)
+    /// Adding a multisig wallet made in Sparrow: where it comes from.
+    case addMultisig
+    /// A multisig wallet that was read, to check before it is added.
+    case checkMultisig(MultisigShown)
+    /// The multisig wallet kept on this iPhone under this name.
+    case multisig(String)
+    /// A backup's key for a multisig wallet, laid out for Sparrow.
+    case cosigner(CosignerShown)
     case about
 
     /// The seed this screen holds, if any.
@@ -54,10 +62,10 @@ enum Route: Hashable {
     }
 
     /// True for the screens that may stay while SeedLock is left during the prompt for a backup's password: they hold
-    /// nothing secret (a backup's screen, and the start of signing, with the transaction to sign).
+    /// nothing secret (a backup's screen, a multisig wallet's, and the start of signing, with the transaction to sign).
     var waitsWell: Bool {
         switch self {
-        case .backup, .sign:
+        case .backup, .multisig, .sign:
             return true
         default:
             return false
@@ -206,6 +214,9 @@ final class AppModel {
     private(set) var working = false
 
     let backups = Backups()
+    let multisig = MultisigWallets()
+    /// The names of the multisig wallets on this iPhone, for the first screen.
+    private(set) var multisigNames: [String] = []
     private let network = NetworkCheck()
     private let cover = PrivacyCover()
 
@@ -244,6 +255,7 @@ final class AppModel {
         if started { return }
         started = true
         refreshBackups()
+        refreshMultisig()
         network.start { [weak self] reasons in
             self?.networkChanged(reasons)
         }
@@ -329,6 +341,26 @@ final class AppModel {
     func delete(_ name: String) {
         backups.delete(name)
         refreshBackups()
+        home()
+    }
+
+    func refreshMultisig() {
+        multisigNames = multisig.names()
+    }
+
+    /// The multisig wallet `name` was added: its screen shows, over the first one.
+    func multisigAdded(_ name: String) {
+        refreshMultisig()
+        setPath([.multisig(name)])
+        say("Multisig wallet added", "The multisig wallet \"\(name)\" is on this iPhone now. To sign one of its "
+            + "transactions, choose \"Sign a transaction\" in a backup that is one of its cosigners (this screen "
+            + "offers them, once they were opened on this iPhone): SeedLock checks every input of this wallet, and "
+            + "that the change really returns to it.")
+    }
+
+    func deleteMultisig(_ name: String) {
+        multisig.delete(name)
+        refreshMultisig()
         home()
     }
 

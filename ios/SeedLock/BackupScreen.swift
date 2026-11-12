@@ -43,6 +43,9 @@ struct BackupScreen: View {
                             model.show(.sparrow(open, name))
                         }
                     }
+                    Button("Key for a multisig wallet (as one of its cosigners)") {
+                        showCosignerKey(model, backup: name, text: text, memoryMib: info.memoryMib)
+                    }
                 } header: {
                     Text(verbatim: "Use it")
                 } footer: {

@@ -75,6 +75,14 @@ struct RootView: View {
             ReviewScreen(model: model, signing: signing)
         case .signed(let shown):
             SignedScreen(model: model, shown: shown)
+        case .addMultisig:
+            AddMultisigScreen(model: model)
+        case .checkMultisig(let shown):
+            CheckMultisigScreen(model: model, shown: shown)
+        case .multisig(let name):
+            MultisigScreen(model: model, name: name)
+        case .cosigner(let shown):
+            CosignerScreen(shown: shown)
         case .about:
             AboutScreen()
         }

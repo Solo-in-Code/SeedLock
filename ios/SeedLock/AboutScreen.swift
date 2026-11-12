@@ -10,8 +10,7 @@ struct AboutScreen: View {
             Section {
                 Text(verbatim: "An offline tool for Bitcoin seeds: encrypted backups, the wallet for Sparrow, signing, "
                     + "multisig. Free software under the MIT license. It is not independently audited. This iPhone app "
-                    + "is an early preview: so far it makes, keeps and checks backups, lays out their wallets for "
-                    + "Sparrow, and signs transactions.")
+                    + "is a preview: built on the same library as the Android app, it does what that app does.")
                 Text(verbatim: "Its source code: \(sourceCode)")
                     .textSelection(.enabled)
             } header: {
